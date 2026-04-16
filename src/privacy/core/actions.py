@@ -1,4 +1,12 @@
-"""Concrete action and message types."""
+"""Concrete action and message types.
+
+Organized in sections:
+  1. Message payload types
+  2. DM + channel messaging actions
+  3. Channel management actions
+  4. Sandbox execution action
+  5. Action union + TypeAdapter
+"""
 
 from typing import Annotated, Literal
 
@@ -27,20 +35,37 @@ MessageAdapter: TypeAdapter[Message] = TypeAdapter(Message)
 
 
 class SendMessage(BaseAction):
-    """Send a message to another agent."""
+    """DM — send a message directly to one agent."""
 
     type: Literal["send_message"] = "send_message"
-    from_agent_id: str = Field(description="ID of the agent sending the message")
-    to_agent_id: str = Field(description="ID of the agent to send the message to")
+    from_agent_id: str = Field(description="ID of the sender")
+    to_agent_id: str = Field(description="ID of the recipient")
     created_at: AwareDatetime = Field(description="When the message was created")
     message: Message = Field(description="The message to send")
 
 
-class FetchMessages(BaseAction):
-    """Get all SendMessages addressed to this agent.
+class ChannelMessage(BaseAction):
+    """Send a message to all members of a channel."""
 
-    Returns every matching message; agent-side code is expected to dedupe by
-    index. No pagination — simple enough for a single-process research simulator.
+    type: Literal["channel_message"] = "channel_message"
+    from_agent_id: str = Field(description="ID of the sender")
+    channel: str = Field(description="Channel name (e.g. 'general')")
+    created_at: AwareDatetime = Field(description="When the message was created")
+    message: Message = Field(description="The message to send")
+
+
+class CreateChannel(BaseAction):
+    """Create a new channel with a fixed member set."""
+
+    type: Literal["create_channel"] = "create_channel"
+    channel: str = Field(description="Channel name")
+    member_ids: list[str] = Field(description="Agent IDs to include")
+
+
+class FetchMessages(BaseAction):
+    """Fetch all messages addressed to this agent — DMs + channel messages.
+
+    Returns every matching message; agent-side code dedupes by index.
     """
 
     type: Literal["fetch_messages"] = "fetch_messages"
@@ -52,8 +77,9 @@ class FetchMessages(BaseAction):
 class ReceivedMessage(BaseModel):
     """A message as received by an agent with metadata."""
 
-    from_agent_id: str = Field(description="ID of the agent who sent the message")
-    to_agent_id: str = Field(description="ID of the agent who received the message")
+    from_agent_id: str = Field(description="ID of the sender")
+    to_agent_id: str = Field(description="Recipient agent ID, or '*' for channel messages")
+    channel: str | None = Field(default=None, description="Channel name if this was a channel message")
     created_at: AwareDatetime = Field(description="When the message was created")
     message: Message = Field(description="The actual message content")
     index: int = Field(description="The row index of the message")
@@ -69,14 +95,13 @@ class FetchMessagesResponse(BaseModel):
 
 
 class ExecuteCommand(BaseAction):
-    """Execute a command inside the invoking agent's sandbox."""
+    """Execute a command inside the invoking agent's persistent sandbox workspace."""
 
     type: Literal["execute_command"] = "execute_command"
     agent_id: str = Field(description="ID of the agent running the command")
     command: list[str] = Field(description="Argv-style command to execute")
     stdin: str | None = Field(default=None, description="Optional stdin to pipe in")
     timeout_seconds: int = Field(default=30, description="Hard wall-clock timeout")
-    workdir: str = Field(default="/workspace", description="Working directory inside the sandbox")
 
 
 class ExecuteCommandResult(BaseModel):
@@ -92,6 +117,9 @@ class ExecuteCommandResult(BaseModel):
 # --- Action union -------------------------------------------------------------
 
 
-Action = Annotated[SendMessage | FetchMessages | ExecuteCommand, Field(discriminator="type")]
+Action = Annotated[
+    SendMessage | ChannelMessage | CreateChannel | FetchMessages | ExecuteCommand,
+    Field(discriminator="type"),
+]
 
 ActionAdapter: TypeAdapter[Action] = TypeAdapter(Action)

@@ -8,6 +8,8 @@ Re-exports everything from `types` and `actions` so callers can simply do:
 from .actions import (
     Action,
     ActionAdapter,
+    ChannelMessage,
+    CreateChannel,
     ExecuteCommand,
     ExecuteCommandResult,
     FetchMessages,
@@ -36,6 +38,8 @@ __all__ = [
     "ActionProtocol",
     "AgentProfile",
     "BaseAction",
+    "ChannelMessage",
+    "CreateChannel",
     "ExecuteCommand",
     "ExecuteCommandResult",
     "FetchMessages",
