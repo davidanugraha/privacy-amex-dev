@@ -3,7 +3,7 @@
 import threading
 from collections.abc import Sequence
 from hashlib import sha256
-from typing import Any, Literal, cast, overload
+from typing import Any, Literal, cast
 
 import anthropic
 import anthropic.types
@@ -69,110 +69,46 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
                 AnthropicClient._client_cache[cache_key] = AnthropicClient(config)
             return AnthropicClient._client_cache[cache_key]
 
-    @overload
-    async def _generate(
+    async def _generate_struct(
         self,
         *,
         model: str,
         messages: Sequence[AllowedChatCompletionMessageParams],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | int | None = None,
-        response_format: None = None,
-        **kwargs: Any,
-    ) -> tuple[str, Usage]: ...
-
-    @overload
-    async def _generate(
-        self,
-        *,
-        model: str,
-        messages: Sequence[AllowedChatCompletionMessageParams],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | int | None = None,
         response_format: type[TResponseModel],
-        **kwargs: Any,
-    ) -> tuple[TResponseModel, Usage]: ...
-
-    async def _generate(
-        self,
-        *,
-        model: str,
-        messages: Sequence[AllowedChatCompletionMessageParams],
         temperature: float | None = None,
         max_tokens: int | None = None,
         reasoning_effort: str | int | None = None,
-        response_format: type[TResponseModel] | None = None,
         **kwargs: Any,
-    ) -> tuple[str, Usage] | tuple[TResponseModel, Usage]:
-        """Generate completion using Anthropic API."""
-        # Convert OpenAI messages to Anthropic format
+    ) -> tuple[TResponseModel, Usage]:
+        """Generate a validated Pydantic response using Anthropic tool-calling."""
         anthropic_messages, system_prompt = self._convert_messages(messages)
 
-        # Build base arguments
         args: dict[str, Any] = {
             "model": model,
             "messages": anthropic_messages,
             "max_tokens": max_tokens or 2000,
         }
-
-        # Add system prompt if we have system messages
         if system_prompt:
             args["system"] = system_prompt
 
-        # Handle reasoning effort -> thinking config
-        thinking_config = None
         if reasoning_effort is not None:
             if reasoning_effort == "minimal":
                 reasoning_effort = 0
-
             if isinstance(reasoning_effort, str):
-                reasoning_effort = 0  # Fallback for unsupported string values
-
+                reasoning_effort = 0
             if reasoning_effort == 0:
-                thinking_config = anthropic.types.ThinkingConfigDisabledParam(
-                    type="disabled"
-                )
+                args["thinking"] = anthropic.types.ThinkingConfigDisabledParam(type="disabled")
             else:
-                # Temperature not supported for thinking mode
                 temperature = None
-                thinking_config = anthropic.types.ThinkingConfigEnabledParam(
-                    type="enabled", budget_tokens=reasoning_effort
+                args["thinking"] = anthropic.types.ThinkingConfigEnabledParam(
+                    type="enabled", budget_tokens=reasoning_effort,
                 )
-
-        if thinking_config:
-            args["thinking"] = thinking_config
 
         if temperature is not None:
             args["temperature"] = temperature
-
-        # Add any additional kwargs
         args.update(kwargs)
 
-        # Handle structured output via tool calling
-        if response_format is not None:
-            return await self._generate_structured(args, response_format, model)
-        else:
-            # Regular completion
-            response = await self.client.messages.create(**args, stream=False)
-
-            # Create usage object
-            usage = Usage(
-                token_count=response.usage.input_tokens + response.usage.output_tokens
-                if response.usage
-                else 0,
-                provider="anthropic",
-                model=model,
-            )
-
-            # Collect all text content
-            content = ""
-            for block in response.content:
-                if block.type == "text":
-                    content += block.text
-
-            return content, usage
+        return await self._generate_structured(args, response_format, model)
 
     def _convert_messages(
         self, messages: Sequence[AllowedChatCompletionMessageParams]

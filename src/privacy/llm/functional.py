@@ -1,7 +1,12 @@
-"""Abstract base class for LLM model clients."""
+"""Top-level LLM entry points.
+
+Two public async functions:
+- `generate_struct` — validated Pydantic output (for LLM-as-judge, analysis, etc.)
+- `generate_agentic` — tool-use loop (for agents)
+"""
 
 from collections.abc import Sequence
-from typing import Annotated, Any, overload
+from typing import Annotated, Any
 
 from pydantic import Field, TypeAdapter
 
@@ -25,99 +30,14 @@ ConcreteLLMConfigs = Annotated[
 ConcreteConfigAdapter: TypeAdapter[ConcreteLLMConfigs] = TypeAdapter(ConcreteLLMConfigs)
 
 
-@overload
-async def generate(
-    messages: Sequence[AllowedChatCompletionMessageParams],
-    *,
-    provider: LLM_PROVIDER | None = None,
-    model: str | None = None,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
+def _build_client(
+    provider: LLM_PROVIDER | None,
+    model: str | None,
+    temperature: float | None,
+    max_tokens: int | None,
     reasoning_effort: str | int | None = None,
-    response_format: None = None,
-    logger: PrivacyLogger | None = None,
-    log_metadata: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> tuple[str, Usage]: ...
-@overload
-async def generate(
-    messages: str,
-    *,
-    provider: LLM_PROVIDER | None = None,
-    model: str | None = None,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    reasoning_effort: str | int | None = None,
-    response_format: None = None,
-    logger: PrivacyLogger | None = None,
-    log_metadata: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> tuple[str, Usage]: ...
-
-
-@overload
-async def generate(
-    messages: Sequence[AllowedChatCompletionMessageParams],
-    *,
-    provider: LLM_PROVIDER | None = None,
-    model: str | None = None,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    reasoning_effort: str | int | None = None,
-    response_format: type[TResponseModel],
-    logger: PrivacyLogger | None = None,
-    log_metadata: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> tuple[TResponseModel, Usage]: ...
-@overload
-async def generate(
-    messages: str,
-    *,
-    provider: LLM_PROVIDER | None = None,
-    model: str | None = None,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    reasoning_effort: str | int | None = None,
-    response_format: type[TResponseModel],
-    logger: PrivacyLogger | None = None,
-    log_metadata: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> tuple[TResponseModel, Usage]: ...
-
-
-async def generate(
-    messages: Sequence[AllowedChatCompletionMessageParams] | str,
-    *,
-    provider: LLM_PROVIDER | None = None,
-    model: str | None = None,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    reasoning_effort: str | int | None = None,
-    response_format: type[TResponseModel] | None = None,
-    logger: PrivacyLogger | None = None,
-    log_metadata: dict[str, Any] | None = None,
-    max_concurrency: int | None = None,
-    **kwargs: Any,
-) -> tuple[str, Usage] | tuple[TResponseModel, Usage]:
-    """Generate a completion using OpenAI SDK arguments.
-
-    Args:
-        messages: List of chat messages in OpenAI format
-        provider: The LLM provider.
-        model: The model to use (or default if not provided)
-        temperature: Sampling temperature
-        max_tokens: Maximum tokens to generate
-        reasoning_effort: Reasoning effort level for capable models
-        response_format: Optional structured output schema
-        logger: Optional PrivacyLogger for logging LLM calls
-        log_metadata: Optional metadata to include with LLM logs
-        max_concurrency: Optional, the maximum number of concurrent requests the returned client supports.
-        **kwargs: Additional provider-specific arguments
-
-    Returns:
-        String response when response_format is None, otherwise structured BaseModel
-
-    """
+) -> tuple[Any, dict[str, Any]]:
+    """Resolve config + construct cached client. Returns (client, config_kwargs)."""
     config_kwargs = {
         "provider": provider,
         "model": model,
@@ -128,7 +48,6 @@ async def generate(
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     config = ConcreteConfigAdapter.validate_python(config_kwargs)
 
-    # Get or create client from cache using the from_cache method
     match config.provider:
         case "anthropic":
             client = AnthropicClient.from_cache(config)
@@ -139,14 +58,34 @@ async def generate(
         case _:
             raise ValueError(f"Unsupported provider: {config.provider}")
 
-    kwargs = {**config.model_dump(exclude=EXCLUDE_FIELDS), **kwargs}
+    return client, config.model_dump(exclude=EXCLUDE_FIELDS)
 
-    return await client.generate(
+
+async def generate_struct(
+    messages: Sequence[AllowedChatCompletionMessageParams] | str,
+    *,
+    response_format: type[TResponseModel],
+    provider: LLM_PROVIDER | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    reasoning_effort: str | int | None = None,
+    logger: PrivacyLogger | None = None,
+    log_metadata: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> tuple[TResponseModel, Usage]:
+    """Generate a validated Pydantic response from the LLM.
+
+    Use this for LLM-as-judge, analysis scoring, classification — any case where
+    you want a typed, validated result rather than free-form text or tool calls.
+    """
+    client, config_kwargs = _build_client(provider, model, temperature, max_tokens, reasoning_effort)
+    return await client.generate_struct(
         messages=messages,
         response_format=response_format,
         logger=logger,
         log_metadata=log_metadata,
-        **kwargs,
+        **{**config_kwargs, **kwargs},
     )
 
 
@@ -163,33 +102,20 @@ async def generate_agentic(
     log_metadata: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> AgenticResponse:
-    """Generate a completion with tool-use support."""
-    config_kwargs = {"provider": provider, "model": model, "temperature": temperature, "max_tokens": max_tokens}
-    config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
-    config = ConcreteConfigAdapter.validate_python(config_kwargs)
-
-    match config.provider:
-        case "anthropic":
-            client = AnthropicClient.from_cache(config)
-        case "openai":
-            client = OpenAIClient.from_cache(config)
-        case "gemini":
-            client = GeminiClient.from_cache(config)
-        case _:
-            raise ValueError(f"Unsupported provider: {config.provider}")
-
+    """Generate a response with tool-use support. Used by the agent framework."""
+    client, config_kwargs = _build_client(provider, model, temperature, max_tokens)
     return await client.generate_agentic(
         messages=messages,
         tools=tools,
         system=system,
         logger=logger,
         log_metadata=log_metadata,
-        **{**config.model_dump(exclude=EXCLUDE_FIELDS), **kwargs},
+        **{**config_kwargs, **kwargs},
     )
 
 
 def clear_client_caches() -> None:
-    """Clear the client caches in all client classes. Useful for testing or changing configurations."""
+    """Clear the client caches in all client classes."""
     AnthropicClient._client_cache.clear()
     OpenAIClient._client_cache.clear()
     GeminiClient._client_cache.clear()

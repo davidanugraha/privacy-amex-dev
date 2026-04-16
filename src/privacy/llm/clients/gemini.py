@@ -4,7 +4,7 @@ import json
 import threading
 from collections.abc import Sequence
 from hashlib import sha256
-from typing import Any, Literal, overload
+from typing import Any, Literal
 
 import google.genai as genai
 import google.genai.types
@@ -71,132 +71,9 @@ class GeminiClient(ProviderClient[GeminiConfig]):
                 GeminiClient._client_cache[cache_key] = GeminiClient(config)
             return GeminiClient._client_cache[cache_key]
 
-    @overload
-    async def _generate(
-        self,
-        *,
-        model: str,
-        messages: Sequence[AllowedChatCompletionMessageParams],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | int | None = None,
-        response_format: None = None,
-        **kwargs: Any,
-    ) -> tuple[str, Usage]: ...
-
-    @overload
-    async def _generate(
-        self,
-        *,
-        model: str,
-        messages: Sequence[AllowedChatCompletionMessageParams],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | int | None = None,
-        response_format: type[TResponseModel],
-        **kwargs: Any,
-    ) -> tuple[TResponseModel, Usage]: ...
-
-    async def _generate(
-        self,
-        *,
-        model: str,
-        messages: Sequence[AllowedChatCompletionMessageParams],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | int | None = None,
-        response_format: type[TResponseModel] | None = None,
-        **kwargs: Any,
-    ) -> tuple[str, Usage] | tuple[TResponseModel, Usage]:
-        """Generate completion using Gemini API."""
-        # Handle structured output
-        if response_format is not None:
-            return await self._generate_struct(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                reasoning_effort=reasoning_effort,
-                response_format=response_format,
-                **kwargs,
-            )
-        else:
-            return await self._generate_text(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                reasoning_effort=reasoning_effort,
-                **kwargs,
-            )
-
-    async def _generate_text(
-        self,
-        model: str,
-        messages: Sequence[AllowedChatCompletionMessageParams],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | int | None = None,
-        **kwargs: Any,
-    ) -> tuple[str, Usage]:
-        """Generate text completion using Gemini API."""
-        # Convert messages to Gemini format
-        contents, system_prompt = self._convert_messages(messages)
-
-        # Build config
-        config = google.genai.types.GenerateContentConfig()
-
-        if temperature is not None:
-            config.temperature = temperature
-
-        if max_tokens is not None:
-            config.max_output_tokens = max_tokens
-
-        # Handle reasoning effort -> thinking config
-        if reasoning_effort is not None:
-            if reasoning_effort == "minimal":
-                reasoning_effort = 0
-            elif isinstance(reasoning_effort, str):
-                reasoning_effort = 0  # Fallback for unsupported string values
-
-            if isinstance(reasoning_effort, int) and reasoning_effort >= -1:  # type: ignore[misc]
-                config.thinking_config = google.genai.types.ThinkingConfig(
-                    thinking_budget=reasoning_effort
-                )
-
-        # Add system instruction if we have system messages
-        if system_prompt:
-            config.system_instruction = system_prompt
-
-        args: dict[str, Any] = {
-            "model": model,
-            "contents": contents,
-            "config": config,
-        }
-
-        # Add any additional kwargs
-        args.update(kwargs)
-
-        try:
-            response = await self.client.aio.models.generate_content(**args)
-
-            token_count = 0
-            if response.usage_metadata and response.usage_metadata.total_token_count:
-                token_count = response.usage_metadata.total_token_count
-
-            usage = Usage(
-                token_count=token_count,
-                provider="gemini",
-                model=model,
-            )
-
-            return response.text or "", usage
-
-        except Exception as e:
-            raise RuntimeError(f"Gemini API call failed: {str(e)}") from e
-
     async def _generate_struct(
         self,
+        *,
         model: str,
         messages: Sequence[AllowedChatCompletionMessageParams],
         response_format: type[TResponseModel],
