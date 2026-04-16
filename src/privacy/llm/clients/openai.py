@@ -18,8 +18,10 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared_params import FunctionDefinition
 
 from ..base import (
+    AgenticResponse,
     AllowedChatCompletionMessageParams,
     ProviderClient,
+    ToolCallInfo,
     TResponseModel,
     Usage,
 )
@@ -306,4 +308,98 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
         raise Exception(
             "Failed to _generate_struct: Exceeded maximum retries. Inner exceptions: "
             + " -> ".join(exceptions)
+        )
+
+    async def _generate_agentic(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> AgenticResponse:
+        """Generate with tool-use support via OpenAI API."""
+        openai_messages: list[ChatCompletionMessageParam] = []
+        for msg in messages:
+            role = msg["role"]
+            if role == "tool":
+                openai_messages.append(ChatCompletionToolMessageParam(
+                    role="tool",
+                    tool_call_id=msg["tool_use_id"],
+                    content=msg.get("content", ""),
+                ))
+            elif role == "assistant" and msg.get("tool_calls"):
+                openai_messages.append(ChatCompletionAssistantMessageParam(
+                    role="assistant",
+                    content=msg.get("text") or msg.get("content") or "",
+                    tool_calls=[
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc["arguments"]),
+                            },
+                        }
+                        for tc in msg["tool_calls"]
+                    ],
+                ))
+            else:
+                openai_messages.append({"role": role, "content": msg.get("content", "")})
+
+        openai_tools = [
+            ChatCompletionToolParam(
+                type="function",
+                function=FunctionDefinition(
+                    name=t["name"],
+                    description=t.get("description", ""),
+                    parameters=t["parameters"],
+                ),
+            )
+            for t in tools
+        ]
+
+        response = await self.client.chat.completions.create(
+            model=model,
+            messages=openai_messages,
+            tools=openai_tools,
+            temperature=temperature,
+            max_tokens=max_tokens or 4096,
+            stream=False,
+            **kwargs,
+        )
+
+        usage = Usage(
+            token_count=response.usage.total_tokens if response.usage else 0,
+            provider="openai",
+            model=model,
+        )
+
+        message = response.choices[0].message if response.choices else None
+        text = message.content if message else None
+        tool_calls: list[ToolCallInfo] = []
+
+        if message and message.tool_calls:
+            for tc in message.tool_calls:
+                tool_calls.append(ToolCallInfo(
+                    id=tc.id,
+                    name=tc.function.name,
+                    arguments=json.loads(tc.function.arguments) if tc.function.arguments else {},
+                ))
+
+        raw_assistant: dict[str, Any] = {
+            "role": "assistant",
+            "content": text or "",
+            "text": text,
+            "tool_calls": [tc.model_dump() for tc in tool_calls],
+        }
+
+        return AgenticResponse(
+            text=text,
+            tool_calls=tool_calls,
+            stop_reason=response.choices[0].finish_reason or "" if response.choices else "",
+            usage=usage,
+            raw_assistant_message=raw_assistant,
         )

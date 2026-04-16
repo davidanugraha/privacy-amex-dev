@@ -11,8 +11,10 @@ import google.genai.types
 import pydantic
 
 from ..base import (
+    AgenticResponse,
     AllowedChatCompletionMessageParams,
     ProviderClient,
+    ToolCallInfo,
     TResponseModel,
     Usage,
 )
@@ -391,3 +393,114 @@ class GeminiClient(ProviderClient[GeminiConfig]):
         system_prompt = "\n\n".join(system_messages) if system_messages else None
 
         return gemini_contents, system_prompt
+
+    async def _generate_agentic(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> AgenticResponse:
+        """Generate with tool-use support via Gemini API.
+
+        Gemini's function-calling API maps cleanly: tools become
+        FunctionDeclarations, tool_use responses become FunctionCall parts,
+        and tool results become FunctionResponse parts.
+        """
+        contents: list[google.genai.types.Content] = []
+        system_prompt: str | None = None
+
+        for msg in messages:
+            role = msg["role"]
+            content = msg.get("content", "")
+
+            if role == "system":
+                system_prompt = content
+            elif role == "user":
+                contents.append(google.genai.types.Content(
+                    role="user", parts=[google.genai.types.Part(text=content)],
+                ))
+            elif role == "assistant":
+                parts: list[google.genai.types.Part] = []
+                if msg.get("text"):
+                    parts.append(google.genai.types.Part(text=msg["text"]))
+                for tc in msg.get("tool_calls", []):
+                    parts.append(google.genai.types.Part(
+                        function_call=google.genai.types.FunctionCall(
+                            name=tc["name"], args=tc["arguments"],
+                        )
+                    ))
+                if not parts and content:
+                    parts.append(google.genai.types.Part(text=content))
+                contents.append(google.genai.types.Content(role="model", parts=parts))
+            elif role == "tool":
+                contents.append(google.genai.types.Content(
+                    role="user",
+                    parts=[google.genai.types.Part(
+                        function_response=google.genai.types.FunctionResponse(
+                            name=msg.get("name", "tool"),
+                            response={"result": msg.get("content", "")},
+                        )
+                    )],
+                ))
+
+        gemini_tools = [google.genai.types.Tool(
+            function_declarations=[
+                google.genai.types.FunctionDeclaration(
+                    name=t["name"],
+                    description=t.get("description", ""),
+                    parameters=t.get("parameters"),
+                )
+                for t in tools
+            ]
+        )]
+
+        config = google.genai.types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens or 4096,
+            tools=gemini_tools,
+        )
+        if system_prompt:
+            config.system_instruction = system_prompt
+
+        client = genai.Client(api_key=self.config.api_key)
+        response = await client.aio.models.generate_content(
+            model=model, contents=contents, config=config, **kwargs,
+        )
+
+        token_count = 0
+        if response.usage_metadata:
+            token_count = (
+                (response.usage_metadata.prompt_token_count or 0)
+                + (response.usage_metadata.candidates_token_count or 0)
+            )
+        usage = Usage(token_count=token_count, provider="gemini", model=model)
+
+        text_parts: list[str] = []
+        tool_calls: list[ToolCallInfo] = []
+
+        if response.candidates:
+            for part in response.candidates[0].content.parts:
+                if part.text:
+                    text_parts.append(part.text)
+                if part.function_call:
+                    tool_calls.append(ToolCallInfo(
+                        id=f"gemini-{part.function_call.name}",
+                        name=part.function_call.name,
+                        arguments=dict(part.function_call.args) if part.function_call.args else {},
+                    ))
+
+        return AgenticResponse(
+            text="\n".join(text_parts) if text_parts else None,
+            tool_calls=tool_calls,
+            stop_reason=str(response.candidates[0].finish_reason) if response.candidates else "",
+            usage=usage,
+            raw_assistant_message={
+                "role": "assistant",
+                "text": "\n".join(text_parts) if text_parts else None,
+                "tool_calls": [tc.model_dump() for tc in tool_calls],
+            },
+        )

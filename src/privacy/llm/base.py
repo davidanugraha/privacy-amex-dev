@@ -37,6 +37,24 @@ class Usage(BaseModel):
     model: str
 
 
+class ToolCallInfo(BaseModel):
+    """A single tool call from an LLM response."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+class AgenticResponse(BaseModel):
+    """Normalized response from an agentic LLM call (with tool use)."""
+
+    text: str | None = None
+    tool_calls: list[ToolCallInfo] = []
+    stop_reason: str = ""
+    usage: Usage
+    raw_assistant_message: dict[str, Any] = {}
+
+
 class LLMCallLog(BaseModel):
     """Structured log data for an LLM call."""
 
@@ -293,4 +311,99 @@ class ProviderClient(ABC, Generic[TConfig]):
                         "LLM call failed", data=log_data, metadata=log_metadata
                     )
 
+                raise
+
+    @abstractmethod
+    async def _generate_agentic(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> AgenticResponse:
+        """Generate a completion with tool-use support.
+
+        Args:
+            model: The model to use.
+            messages: Conversation history in provider-agnostic format:
+                {"role": "user"/"assistant"/"system"/"tool", "content": ..., ...}
+            tools: Tool definitions: [{"name": str, "description": str, "parameters": dict}]
+            **kwargs: Additional provider-specific arguments.
+
+        Returns:
+            AgenticResponse with text, tool_calls, and the raw assistant message
+            (for appending to conversation history).
+        """
+        pass
+
+    async def generate_agentic(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]],
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        system: str | None = None,
+        logger: PrivacyLogger | None = None,
+        log_metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> AgenticResponse:
+        """Generate a completion with tool-use support (public wrapper)."""
+        model = model or self.model
+        if not model:
+            raise ValueError("model required when self.model is not set.")
+
+        if system:
+            messages = [{"role": "system", "content": system}, *messages]
+
+        async with self._semaphore:
+            start_time = time.time()
+            try:
+                result = await self._generate_agentic(
+                    model=model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=temperature,
+                    max_tokens=max_tokens or 4096,
+                    **kwargs,
+                )
+                duration_ms = (time.time() - start_time) * 1000
+
+                if logger is not None:
+                    log_data = LLMCallLog(
+                        success=True,
+                        provider=result.usage.provider,
+                        model=result.usage.model,
+                        duration_ms=duration_ms,
+                        token_count=result.usage.token_count,
+                        error_message=None,
+                        prompt=str(messages[-1]) if messages else "",
+                        response={"text": result.text, "tool_calls": len(result.tool_calls)},
+                        response_format=None,
+                        api_args={"model": model, "tools_count": len(tools), **kwargs},
+                    )
+                    logger.debug("Agentic LLM call succeeded", data=log_data, metadata=log_metadata)
+
+                return result
+
+            except Exception as e:
+                duration_ms = (time.time() - start_time) * 1000
+                if logger is not None:
+                    log_data = LLMCallLog(
+                        success=False,
+                        provider=self.provider,
+                        model=model,
+                        duration_ms=duration_ms,
+                        token_count=0,
+                        error_message=str(e),
+                        prompt=str(messages[-1]) if messages else "",
+                        response="",
+                        response_format=None,
+                        api_args={"model": model, "tools_count": len(tools), **kwargs},
+                    )
+                    logger.debug("Agentic LLM call failed", data=log_data, metadata=log_metadata)
                 raise

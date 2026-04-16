@@ -8,6 +8,7 @@ from pydantic import Field, TypeAdapter
 from src.privacy.logger import PrivacyLogger
 
 from .base import (
+    AgenticResponse,
     AllowedChatCompletionMessageParams,
     TResponseModel,
     Usage,
@@ -146,6 +147,44 @@ async def generate(
         logger=logger,
         log_metadata=log_metadata,
         **kwargs,
+    )
+
+
+async def generate_agentic(
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]],
+    provider: LLM_PROVIDER | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    system: str | None = None,
+    logger: PrivacyLogger | None = None,
+    log_metadata: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> AgenticResponse:
+    """Generate a completion with tool-use support."""
+    config_kwargs = {"provider": provider, "model": model, "temperature": temperature, "max_tokens": max_tokens}
+    config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
+    config = ConcreteConfigAdapter.validate_python(config_kwargs)
+
+    match config.provider:
+        case "anthropic":
+            client = AnthropicClient.from_cache(config)
+        case "openai":
+            client = OpenAIClient.from_cache(config)
+        case "gemini":
+            client = GeminiClient.from_cache(config)
+        case _:
+            raise ValueError(f"Unsupported provider: {config.provider}")
+
+    return await client.generate_agentic(
+        messages=messages,
+        tools=tools,
+        system=system,
+        logger=logger,
+        log_metadata=log_metadata,
+        **{**config.model_dump(exclude=EXCLUDE_FIELDS), **kwargs},
     )
 
 

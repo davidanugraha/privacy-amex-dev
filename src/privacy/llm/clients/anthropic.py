@@ -9,8 +9,10 @@ import anthropic
 import anthropic.types
 
 from ..base import (
+    AgenticResponse,
     AllowedChatCompletionMessageParams,
     ProviderClient,
+    ToolCallInfo,
     TResponseModel,
     Usage,
 )
@@ -362,4 +364,122 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
         raise Exception(
             "Failed to _generate_structured: Exceeded maximum retries. Inner exceptions: "
             + " -> ".join(exceptions)
+        )
+
+    async def _generate_agentic(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> AgenticResponse:
+        """Generate with tool-use support via Anthropic API."""
+        anthropic_messages: list[anthropic.types.MessageParam] = []
+        system_prompt: str | None = None
+
+        for msg in messages:
+            role = msg["role"]
+            content = msg.get("content", "")
+
+            if role == "system":
+                system_prompt = content
+            elif role == "user":
+                anthropic_messages.append(
+                    anthropic.types.MessageParam(role="user", content=content)
+                )
+            elif role == "assistant":
+                # Reconstruct content blocks (text + tool_use)
+                blocks: list[Any] = []
+                if msg.get("text"):
+                    blocks.append({"type": "text", "text": msg["text"]})
+                for tc in msg.get("tool_calls", []):
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "input": tc["arguments"],
+                    })
+                if not blocks and isinstance(content, str) and content:
+                    blocks = content
+                anthropic_messages.append(
+                    anthropic.types.MessageParam(role="assistant", content=blocks or content)
+                )
+            elif role == "tool":
+                # Tool results are user messages with tool_result blocks in Anthropic
+                anthropic_messages.append(
+                    anthropic.types.MessageParam(
+                        role="user",
+                        content=[{
+                            "type": "tool_result",
+                            "tool_use_id": msg["tool_use_id"],
+                            "content": msg.get("content", ""),
+                        }],
+                    )
+                )
+
+        anthropic_tools = [
+            anthropic.types.ToolParam(
+                name=t["name"],
+                description=t.get("description", ""),
+                input_schema=t["parameters"],
+            )
+            for t in tools
+        ]
+
+        args: dict[str, Any] = {
+            "model": model,
+            "messages": anthropic_messages,
+            "tools": anthropic_tools,
+            "max_tokens": max_tokens or 4096,
+        }
+        if system_prompt:
+            args["system"] = system_prompt
+        if temperature is not None:
+            args["temperature"] = temperature
+        args.update(kwargs)
+
+        response = await self.client.messages.create(**args, stream=False)
+
+        usage = Usage(
+            token_count=(response.usage.input_tokens + response.usage.output_tokens)
+            if response.usage else 0,
+            provider="anthropic",
+            model=model,
+        )
+
+        text_parts: list[str] = []
+        tool_calls: list[ToolCallInfo] = []
+        raw_blocks: list[dict[str, Any]] = []
+
+        for block in response.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+                raw_blocks.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                tool_calls.append(ToolCallInfo(
+                    id=block.id,
+                    name=block.name,
+                    arguments=block.input if isinstance(block.input, dict) else {},
+                ))
+                raw_blocks.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input,
+                })
+
+        return AgenticResponse(
+            text="\n".join(text_parts) if text_parts else None,
+            tool_calls=tool_calls,
+            stop_reason=response.stop_reason or "",
+            usage=usage,
+            raw_assistant_message={
+                "role": "assistant",
+                "content": raw_blocks,
+                "text": "\n".join(text_parts) if text_parts else None,
+                "tool_calls": [tc.model_dump() for tc in tool_calls],
+            },
         )
