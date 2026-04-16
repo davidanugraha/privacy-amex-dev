@@ -1,0 +1,97 @@
+"""Concrete action and message types."""
+
+from typing import Annotated, Literal
+
+from pydantic import AwareDatetime, BaseModel, Field
+from pydantic.type_adapter import TypeAdapter
+
+from .types import BaseAction
+
+
+# --- Message payloads ---------------------------------------------------------
+
+
+class TextMessage(BaseModel):
+    """A text message."""
+
+    type: Literal["text"] = "text"
+    content: str = Field(description="Text content of the message")
+
+
+Message = TextMessage
+
+MessageAdapter: TypeAdapter[Message] = TypeAdapter(Message)
+
+
+# --- Messaging actions --------------------------------------------------------
+
+
+class SendMessage(BaseAction):
+    """Send a message to another agent."""
+
+    type: Literal["send_message"] = "send_message"
+    from_agent_id: str = Field(description="ID of the agent sending the message")
+    to_agent_id: str = Field(description="ID of the agent to send the message to")
+    created_at: AwareDatetime = Field(description="When the message was created")
+    message: Message = Field(description="The message to send")
+
+
+class FetchMessages(BaseAction):
+    """Get all SendMessages addressed to this agent.
+
+    Returns every matching message; agent-side code is expected to dedupe by
+    index. No pagination — simple enough for a single-process research simulator.
+    """
+
+    type: Literal["fetch_messages"] = "fetch_messages"
+    from_agent_id: str | None = Field(
+        default=None, description="Optional sender filter"
+    )
+
+
+class ReceivedMessage(BaseModel):
+    """A message as received by an agent with metadata."""
+
+    from_agent_id: str = Field(description="ID of the agent who sent the message")
+    to_agent_id: str = Field(description="ID of the agent who received the message")
+    created_at: AwareDatetime = Field(description="When the message was created")
+    message: Message = Field(description="The actual message content")
+    index: int = Field(description="The row index of the message")
+
+
+class FetchMessagesResponse(BaseModel):
+    """Response from fetching messages."""
+
+    messages: list[ReceivedMessage] = Field(description="List of received messages")
+
+
+# --- Sandbox execution --------------------------------------------------------
+
+
+class ExecuteCommand(BaseAction):
+    """Execute a command inside the invoking agent's sandbox."""
+
+    type: Literal["execute_command"] = "execute_command"
+    agent_id: str = Field(description="ID of the agent running the command")
+    command: list[str] = Field(description="Argv-style command to execute")
+    stdin: str | None = Field(default=None, description="Optional stdin to pipe in")
+    timeout_seconds: int = Field(default=30, description="Hard wall-clock timeout")
+    workdir: str = Field(default="/workspace", description="Working directory inside the sandbox")
+
+
+class ExecuteCommandResult(BaseModel):
+    """Result of a sandboxed command execution."""
+
+    stdout: str
+    stderr: str
+    exit_code: int
+    timed_out: bool
+    duration_ms: float
+
+
+# --- Action union -------------------------------------------------------------
+
+
+Action = Annotated[SendMessage | FetchMessages | ExecuteCommand, Field(discriminator="type")]
+
+ActionAdapter: TypeAdapter[Action] = TypeAdapter(Action)
