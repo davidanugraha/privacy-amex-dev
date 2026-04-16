@@ -88,7 +88,7 @@ class PrivacyProtocol(BasePrivacyProtocol):
             return await execute_channel_message(parsed_action, self._channels)
 
         if isinstance(parsed_action, CreateChannel):
-            return await execute_create_channel(parsed_action, self._channels)
+            return await execute_create_channel(parsed_action, self._channels, agent.id)
 
         if isinstance(parsed_action, FetchMessages):
             return await execute_fetch_messages(parsed_action, agent, database, self._channels)

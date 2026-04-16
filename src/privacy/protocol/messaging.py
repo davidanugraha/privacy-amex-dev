@@ -75,15 +75,17 @@ async def execute_channel_message(
 async def execute_create_channel(
     action: CreateChannel,
     channels: dict[str, set[str]],
+    agent_id: str,
 ) -> ActionExecutionResult:
     if action.channel in channels:
         return ActionExecutionResult(
             content={"error": f"channel {action.channel!r} already exists"},
             is_error=True,
         )
-    channels[action.channel] = set(action.member_ids)
+    members = set(action.member_ids) | {agent_id}
+    channels[action.channel] = members
     return ActionExecutionResult(
-        content={"channel": action.channel, "members": action.member_ids},
+        content={"channel": action.channel, "members": sorted(members)},
         is_error=False,
         metadata={"status": "created"},
     )
