@@ -30,19 +30,42 @@ class Scenario:
     kickoff_channel: str = "general"
     max_steps: int = 20
     max_idle_steps: int = 5
+    max_tool_rounds: int = 10
     sandbox_backend: Literal["docker", "local"] = "local"
+
+
+def _resolve_sandbox_files(
+    raw_files: dict[str, str], scenario_dir: Path
+) -> dict[str, str]:
+    """Resolve sandbox file values.
+
+    If a value starts with ``file:`` the remainder is treated as a path
+    relative to the scenario YAML and its contents are read from disk.
+    Otherwise the value is used as-is (inline content).
+    """
+    resolved: dict[str, str] = {}
+    for name, value in raw_files.items():
+        if value.strip().startswith("file:"):
+            rel = value.strip().removeprefix("file:").strip()
+            file_path = scenario_dir / rel
+            resolved[name] = file_path.read_text()
+        else:
+            resolved[name] = value
+    return resolved
 
 
 def load_scenario(path: str | Path) -> Scenario:
     """Load a Scenario from a YAML file."""
     path = Path(path)
+    scenario_dir = path.parent
     with open(path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
 
     agents: list[ScenarioAgent] = []
     for agent_cfg in raw.get("agents", []):
         profile = PrivacyAgentProfile.from_config(agent_cfg)
-        sandbox_files = agent_cfg.get("sandbox_files", {})
+        raw_files = agent_cfg.get("sandbox_files", {})
+        sandbox_files = _resolve_sandbox_files(raw_files, scenario_dir)
         agents.append(ScenarioAgent(
             id=profile.id,
             profile=profile,
@@ -58,5 +81,6 @@ def load_scenario(path: str | Path) -> Scenario:
         kickoff_channel=raw.get("kickoff_channel", "general"),
         max_steps=raw.get("max_steps", 20),
         max_idle_steps=raw.get("max_idle_steps", 5),
+        max_tool_rounds=raw.get("max_tool_rounds", 10),
         sandbox_backend=raw.get("sandbox_backend", "local"),
     )

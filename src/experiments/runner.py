@@ -17,6 +17,7 @@ from src.privacy.sandbox import build_sandbox
 
 from .launcher import AgentLauncher
 from .scenario import Scenario, ScenarioAgent, load_scenario
+from .trajectory import dump_trajectories
 
 
 @dataclass
@@ -58,7 +59,10 @@ async def run_scenario(scenario: Scenario) -> ExperimentResult:
 
     print(f"\n{'='*60}")
     print("Experiment complete. Printing action log summary...\n")
-    _print_action_summary(db)
+    await _print_action_summary(db)
+
+    output_path = await dump_trajectories(agents, db, scenario)
+    print(f"\nTrajectories saved to: {output_path}")
 
     return ExperimentResult(database=db, scenario=scenario)
 
@@ -77,6 +81,7 @@ def _build_agent(
         peer_ids=[aid for aid in all_ids if aid != sa.id],
         max_steps=scenario.max_steps,
         max_idle_steps=scenario.max_idle_steps,
+        max_tool_rounds=scenario.max_tool_rounds,
     )
 
     # Override sandbox_files to return scenario-provisioned files
@@ -86,14 +91,9 @@ def _build_agent(
     return agent
 
 
-def _print_action_summary(db: BaseDatabaseController) -> None:
+async def _print_action_summary(db: BaseDatabaseController) -> None:
     """Print a human-readable summary of all actions that occurred."""
-    import asyncio
-
-    async def _get_actions():
-        return await db.actions.get_all()
-
-    rows = asyncio.get_event_loop().run_until_complete(_get_actions())
+    rows = await db.actions.get_all()
 
     dm_count = 0
     channel_count = 0
