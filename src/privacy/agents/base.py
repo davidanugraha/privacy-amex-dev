@@ -29,12 +29,11 @@ from src.privacy.database.models import AgentRow
 from src.privacy.logger import PrivacyLogger
 from src.privacy.protocol.base import BasePrivacyProtocol
 
-from ..llm import generate, generate_agentic
+from ..llm import generate_agentic
 from ..llm.base import AgenticResponse
 from ..llm.config import BaseLLMConfig
 
 TProfile = TypeVar("TProfile", bound=AgentProfile)
-TResponseFormat = TypeVar("TResponseFormat", bound=BaseModel)
 
 # Default tool definitions for privacy agents.
 DEFAULT_TOOLS: list[dict[str, Any]] = [
@@ -212,15 +211,6 @@ class BaseAgent(Generic[TProfile], ABC):  # noqa: UP046
         return f"{self.__class__.__name__}(id='{self.id}')"
 
 
-class LLMCallMetadata(BaseModel):
-    """Metadata returned from LLM calls for logging purposes."""
-
-    duration_ms: float
-    token_count: int
-    provider: str
-    model: str
-
-
 class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
     """Base class with LLM calls, messaging, and an agentic tool-use loop."""
 
@@ -300,31 +290,6 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
 
         return response.model_copy(update={"messages": new_messages})
 
-    # --- LLM calls (legacy — kept for backward compatibility) -----------------
-
-    async def generate(self, prompt: str, **kwargs: Any) -> tuple[str, LLMCallMetadata]:
-        kwargs = {**self.llm_config.model_dump(), **kwargs}
-        response, usage = await generate(
-            prompt, logger=self.logger, log_metadata={"agent_id": self.id}, **kwargs
-        )
-        return response, LLMCallMetadata(
-            duration_ms=0, token_count=usage.token_count,
-            provider=usage.provider, model=usage.model,
-        )
-
-    async def generate_struct(
-        self, prompt: str, response_format: type[TResponseFormat], **kwargs: Any
-    ) -> tuple[TResponseFormat, LLMCallMetadata]:
-        kwargs = {**self.llm_config.model_dump(), **kwargs}
-        response, usage = await generate(
-            prompt, response_format=response_format,
-            logger=self.logger, log_metadata={"agent_id": self.id}, **kwargs
-        )
-        return response, LLMCallMetadata(
-            duration_ms=0, token_count=usage.token_count,
-            provider=usage.provider, model=usage.model,
-        )
-
     # --- Agentic tool-use loop ------------------------------------------------
 
     def _build_tool_definitions(self) -> list[dict[str, Any]]:
@@ -338,6 +303,8 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
                 arguments["to_agent_id"],
                 TextMessage(content=arguments["content"]),
             )
+            if result.is_error:
+                return json.dumps({"error": result.content})
             return json.dumps({"status": "sent", "to": arguments["to_agent_id"]})
 
         if name == "send_channel_message":
@@ -345,13 +312,17 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
                 arguments.get("channel", "general"),
                 TextMessage(content=arguments["content"]),
             )
+            if result.is_error:
+                return json.dumps({"error": result.content})
             return json.dumps({"status": "sent", "channel": arguments.get("channel", "general")})
 
         if name == "create_channel":
             result = await self.create_channel(
                 arguments["channel"], arguments["member_ids"],
             )
-            return json.dumps({"status": "created", "channel": arguments["channel"]})
+            if result.is_error:
+                return json.dumps({"error": result.content})
+            return json.dumps({"status": "created", "channel": arguments["channel"], "members": result.content.get("members", []) if isinstance(result.content, dict) else []})
 
         if name == "execute_command":
             cmd_result = await self.execute_command(
@@ -410,7 +381,10 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
                 break
 
             for tc in response.tool_calls:
-                result_str = await self._dispatch_tool_call(tc.name, tc.arguments)
+                try:
+                    result_str = await self._dispatch_tool_call(tc.name, tc.arguments)
+                except Exception as e:
+                    result_str = json.dumps({"error": str(e)})
                 self._messages.append({
                     "role": "tool",
                     "tool_use_id": tc.id,
