@@ -16,6 +16,7 @@ from src.privacy.protocol.protocol import PrivacyProtocol
 from src.privacy.sandbox import build_sandbox
 
 from .launcher import AgentLauncher
+from .report import generate_report
 from .scenario import Scenario, ScenarioAgent, load_scenario
 from .trajectory import dump_trajectories
 
@@ -63,6 +64,9 @@ async def run_scenario(scenario: Scenario) -> ExperimentResult:
 
     output_path = await dump_trajectories(agents, db, scenario)
     print(f"\nTrajectories saved to: {output_path}")
+
+    report_path = generate_report(output_path)
+    print(f"Report: {report_path}")
 
     return ExperimentResult(database=db, scenario=scenario)
 
