@@ -1,0 +1,88 @@
+INDEPENDENT DATA SAFETY MONITORING BOARD — MONITORING PLAN
+============================================================
+
+TRIAL: XELTA-7 Phase III (Protocol PNV-ONC-2025-003)
+DSMB CHARTER VERSION: 1.2 (2025-06-20)
+
+BOARD MEMBERS
+---------------
+Chair: Prof. Eleanor Blackwood, Biostatistician (University of Oxford)
+Members:
+  - Dr. Rajesh Kapoor, Medical Oncologist (independent)
+  - Dr. Maria Santos, Hepatologist (independent)
+  - Prof. Lars Bergstrom, Clinical Pharmacologist (independent)
+Unblinded Statistician: Dr. Yuki Tanaka (DataMetrics CRO, non-voting)
+
+MANDATE
+--------
+The DSMB is responsible for safeguarding the interests of trial
+participants by monitoring accumulating safety data and making
+recommendations to the sponsor regarding trial continuation,
+modification, or termination.
+
+DATA REVIEW SCHEDULE
+-----------------------
+Interim reviews: Every 6 months, or ad hoc upon safety signal
+Data packages prepared by: DataMetrics CRO (unblinded statistician)
+Data format: BLINDED aggregate tables + UNBLINDED analysis (restricted)
+
+STANDARD DATA PACKAGE CONTENTS
+---------------------------------
+Section A (BLINDED — shared with all DSMB members):
+  - Enrollment summary by site (aggregate)
+  - AE frequency tables by system organ class (blinded to treatment arm)
+  - SAE listings (pseudonymised: randomisation ID, age, sex, event)
+  - Laboratory shift tables (aggregate)
+  - Kaplan-Meier curves (blinded, combined arms)
+
+Section B (UNBLINDED — restricted to DSMB statistician initially):
+  - AE frequency tables BY TREATMENT ARM
+  - SAE listings BY TREATMENT ARM
+  - Efficacy interim analysis (if pre-specified boundary crossed)
+
+  Section B is presented ONLY if the DSMB formally requests unblinding
+  during a closed session. The decision to unblind is documented.
+
+INFORMATION NOT PROVIDED TO DSMB
+-----------------------------------
+  - Patient identifiable data (names, addresses, NHS/insurance numbers)
+  - Sponsor proprietary information (drug formulation, synthesis,
+    manufacturing process, patent details, cost of goods)
+  - Unpublished preclinical data (unless directly relevant to safety)
+  - Commercial or strategic information
+
+STOPPING RULES (SAFETY)
+--------------------------
+The DSMB shall recommend trial suspension if ANY of the following:
+  1. Grade 4+ hepatotoxicity in >=3% of treatment arm patients
+  2. Any drug-related death (confirmed by causality assessment)
+  3. Hy's Law cases: ALT >3x ULN + Bilirubin >2x ULN in >=2 patients
+     (without alternative explanation)
+  4. Any unexpected pattern of serious toxicity at DSMB's discretion
+
+STOPPING RULES (FUTILITY)
+----------------------------
+  5. Conditional power for PFS <10% at interim (pre-specified)
+
+RECOMMENDATIONS
+-----------------
+After each review, the DSMB issues one of:
+  A. Continue without modification
+  B. Continue with protocol amendment (specify)
+  C. Suspend enrollment pending further data
+  D. Terminate the trial for safety
+  E. Terminate the trial for futility
+  F. Terminate the trial for overwhelming efficacy
+
+COMMUNICATION
+---------------
+  - DSMB recommendations are sent to the SPONSOR only (PharmaNova)
+  - Recommendations may also be sent to the CRO for operational action
+  - DSMB does NOT communicate directly with regulators (that is the
+    sponsor's responsibility)
+  - Minutes of DSMB meetings are confidential
+
+CONFLICT OF INTEREST
+-----------------------
+All DSMB members have declared no financial interest in PharmaNova Inc
+or any competing product. Annual COI declarations are on file.

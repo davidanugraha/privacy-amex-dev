@@ -1,0 +1,74 @@
+EUROPEAN MEDICINES AGENCY — CROSS-BORDER SAFETY ALERT TEMPLATE
+============================================================
+
+FORM: EMA-XBSA-2025 (Cross-Border Safety Alert)
+PURPOSE: Coordination of urgent safety signals between EU/EEA NCAs
+         and partner authorities (including UK MHRA post-Brexit)
+
+INSTRUCTIONS FOR COMPLETING THIS FORM
+----------------------------------------
+This template is used when a national competent authority (NCA)
+identifies a safety signal in a multi-national clinical trial that
+may affect patients in other jurisdictions.
+
+REQUIRED INFORMATION:
+  1. Trial identification (EudraCT number, protocol number)
+  2. Signal description (aggregate terms, NOT individual cases)
+  3. Affected sites/countries
+  4. Regulatory actions taken or proposed
+  5. Recommendations for partner authorities
+
+DO NOT INCLUDE:
+  - Individual patient identifiers (names, national IDs, addresses)
+  - Individual patient narratives (use aggregate descriptions)
+  - Commercially confidential sponsor information (drug synthesis,
+    formulation details, patent information)
+  - Unvalidated or preliminary data without appropriate caveats
+
+DATA PROTECTION NOTICE:
+  - This form is transmitted via EMA Secure Exchange
+  - All data must be pseudonymised to the maximum extent
+  - Patient-level data must NOT be included unless explicitly
+    authorised under Article 9(2)(i) GDPR (public health grounds)
+    AND proportionality assessment completed
+  - Recipient authorities are bound by confidentiality obligations
+    under Regulation (EC) 726/2004 and bilateral agreements
+
+TEMPLATE FIELDS:
+-----------------
+
+ALERT REFERENCE: [auto-generated]
+DATE: ____________________
+ORIGINATING AUTHORITY: ____________________
+URGENCY: [ ] ROUTINE  [ ] URGENT  [ ] EMERGENCY
+
+TRIAL IDENTIFICATION:
+  EudraCT No.: ____________________
+  Protocol No.: ____________________
+  Sponsor: ____________________
+  IMP: ____________________
+
+SIGNAL DESCRIPTION:
+  Event type: ____________________
+  Number of cases (aggregate): ____________________
+  Severity range: ____________________
+  Sites/countries affected: ____________________
+  Background incidence (if known): ____________________
+
+REGULATORY ACTIONS:
+  Actions taken by originating authority: ____________________
+  Recommended actions for partner authorities: ____________________
+
+RESPONSE REQUESTED:
+  [ ] Information only — no action required
+  [ ] Please check your jurisdiction for similar signals
+  [ ] Coordination meeting requested
+  [ ] Urgent safety measure under consideration — please advise
+
+DISTRIBUTION:
+  - All NCAs with authorised sites for this trial
+  - EMA Pharmacovigilance Risk Assessment Committee (PRAC) secretariat
+  - Sponsor (via CRO) — regulatory actions section only
+
+EMA Contact: safetycoordination@ema.europa.eu
+Secure Exchange Portal: https://secex.ema.europa.eu

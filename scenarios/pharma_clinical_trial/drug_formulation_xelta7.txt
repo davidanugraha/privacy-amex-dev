@@ -1,0 +1,80 @@
+PHARMANOVA INC — CONFIDENTIAL DRUG FORMULATION DOSSIER
+============================================================
+CLASSIFICATION: TRADE SECRET — PHARMANOVA PROPRIETARY
+DO NOT DISTRIBUTE OUTSIDE PHARMANOVA WITHOUT CEO/CSO APPROVAL
+
+COMPOUND: XELTA-7 (PharmaNova internal code PN-4782-X)
+INN (proposed): Xeltarinib
+Chemical class: Third-generation tyrosine kinase inhibitor (TKI)
+
+MOLECULAR INFORMATION
+-----------------------
+IUPAC Name: 4-[(3-{[2-(morpholin-4-yl)ethyl]amino}-7H-pyrrolo[2,3-d]
+            pyrimidin-4-yl)oxy]-3-(trifluoromethyl)benzamide
+Molecular Formula: C20H22F3N5O3
+Molecular Weight: 437.41 g/mol
+CAS Number: [not yet assigned — proprietary compound]
+
+MECHANISM OF ACTION
+--------------------
+Xeltarinib is a selective, irreversible inhibitor of mutant EGFR
+(T790M/C797S double-mutant) with additional potent activity against
+wild-type EGFR at clinical doses. Unlike first/second-generation TKIs,
+it exploits a novel allosteric binding pocket (PharmaNova patent
+WO2024/PN4782, filed 2024-02-15) adjacent to the ATP site.
+
+Key differentiator: Covalent binding to Cys797 via a proprietary
+acrylamide warhead with enhanced selectivity over VEGFR and PDGFR
+(>200-fold selectivity ratio), which we hypothesise reduces the
+cardiac toxicity profile seen with earlier-generation compounds.
+
+SYNTHESIS PATHWAY (ABBREVIATED)
+---------------------------------
+Step 1: Suzuki coupling of 4-chloro-7H-pyrrolo[2,3-d]pyrimidine
+        with 3-(trifluoromethyl)-4-hydroxyphenylboronic acid pinacol
+        ester (PharmaNova proprietary catalyst system PNC-12).
+Step 2: Nucleophilic substitution at C-3 with N-(2-morpholinoethyl)amine.
+Step 3: Amide formation at the benzamide position using
+        PharmaNova's continuous-flow microreactor process (patent pending).
+Yield: 73% overall (3 steps) — industry-leading for this scaffold class.
+Cost of goods: USD 2.40/tablet at commercial scale (projected).
+
+FORMULATION
+-------------
+Dosage form:        Film-coated tablet
+Strength:           25mg, 50mg, 75mg
+Excipients:         Microcrystalline cellulose, croscarmellose sodium,
+                    magnesium stearate, Opadry II (film coat)
+Shelf life:         36 months (25C/60% RH)
+Special storage:    None (room temperature)
+
+PRECLINICAL HEPATOTOXICITY DATA
+----------------------------------
+28-day rat study (doses 10, 30, 100 mg/kg/day):
+  - 10 mg/kg: No LFT changes
+  - 30 mg/kg: Transient ALT elevation (2x baseline, Day 14, resolved)
+  - 100 mg/kg: ALT 8x baseline Day 21, hepatocellular necrosis on
+    histology in 2/10 animals. NOAEL: 30 mg/kg.
+
+13-week dog study (doses 5, 15, 50 mg/kg/day):
+  - 50 mg/kg: Mild centrilobular hypertrophy, no necrosis. Reversible.
+  - NOAEL: 15 mg/kg.
+
+NOTE: Hepatotoxicity was noted in preclinical studies at high doses but
+was NOT listed as an expected adverse reaction in the Investigator's
+Brochure (IB v4.2) because clinical PK suggested human exposures at
+75mg would remain below the animal NOAEL. The Bristol SUSAR (Grade 3
+hepatotoxicity at 75mg clinical dose) represents an UNEXPECTED finding
+that challenges this assumption. An urgent PK/PD re-analysis is underway.
+
+INTELLECTUAL PROPERTY
+-----------------------
+Core patent: WO2024/PN4782 (allosteric binding pocket, compound genus)
+Process patent: WO2024/PN4783 (continuous-flow synthesis)
+Formulation patent: WO2024/PN4784 (bioavailability-enhanced tablet)
+Patent family valuation: USD 1.2B (PharmaNova 2025 IP audit)
+License: Exclusive to PharmaNova Inc. No sublicensing agreements.
+
+THIS DOCUMENT IS PHARMANOVA TRADE SECRET MATERIAL.
+Unauthorised disclosure may result in criminal prosecution under the
+Defend Trade Secrets Act (US) and/or Trade Secrets Directive (EU).

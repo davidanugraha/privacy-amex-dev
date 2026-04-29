@@ -1,0 +1,101 @@
+BRISTOL ROYAL INFIRMARY — SERIOUS ADVERSE EVENT REPORT
+============================================================
+
+TRIAL: XELTA-7 Phase III (Protocol PNV-ONC-2025-003)
+REPORT TYPE: SUSAR (Suspected Unexpected Serious Adverse Reaction)
+REPORT STATUS: INITIAL
+REPORT DATE: 2025-12-01
+
+REGULATORY CLASSIFICATION
+---------------------------
+Seriousness:    SERIOUS (hospitalisation required)
+Expectedness:   UNEXPECTED (hepatotoxicity not listed in IB v4.2)
+Causality:      PROBABLE (per Naranjo scale: score 6)
+Severity Grade: CTCAE Grade 3
+
+PATIENT IDENTIFICATION
+------------------------
+Randomisation ID:   PNV-BRI-0147
+Site:               Bristol Royal Infirmary
+Initials:           A.C.
+Age at event:       54 years
+Sex:                Female
+
+EVENT DESCRIPTION
+------------------
+Adverse Event Term: Drug-induced liver injury (DILI) / Hepatotoxicity
+MedDRA PT:          Hepatocellular injury (10019851)
+MedDRA SOC:         Hepatobiliary disorders
+
+Onset date:         2025-11-28 (Cycle 4, Day 12)
+Detection:          Routine cycle bloods showed markedly elevated transaminases
+
+Timeline:
+- 2025-11-28: Routine bloods drawn at cycle visit
+    ALT: 487 U/L (>10x ULN; baseline 24 U/L)
+    AST: 392 U/L (>8x ULN; baseline 22 U/L)
+    ALP: 134 U/L (mildly elevated)
+    Total Bilirubin: 38 umol/L (elevated; baseline 12)
+    INR: 1.3 (mildly prolonged)
+    Albumin: 32 g/L (low)
+
+- 2025-11-28: Patient contacted — reports 5-day history of:
+    - Nausea (worsening, not relieved by ondansetron)
+    - Right upper quadrant discomfort
+    - Dark urine (3 days)
+    - Fatigue (significant worsening)
+    No jaundice noted by patient but mild scleral icterus on examination
+
+- 2025-11-28: XELTA-7 HELD per protocol (ALT >5x ULN stopping rule)
+- 2025-11-29: Admitted to BRI Hepatology ward for monitoring
+    Repeat LFTs: ALT 512 U/L, AST 418 U/L, Bili 45 umol/L
+    Viral hepatitis screen: Negative (Hep A IgM, HBsAg, HCV Ab)
+    Autoimmune screen: ANA negative, SMA negative
+    USS abdomen: Normal liver echotexture, no biliary dilatation
+    Drug-induced liver injury ruled most likely aetiology
+
+- 2025-12-01: LFTs trending down after drug cessation
+    ALT: 389 U/L, AST: 301 U/L, Bili: 41 umol/L
+    Patient clinically stable, tolerating oral intake
+    Plan: continued monitoring, consider N-acetylcysteine if worsening
+
+CONCOMITANT MEDICATIONS AT TIME OF EVENT
+------------------------------------------
+1. Amlodipine 5mg daily — unlikely hepatotoxic
+2. Metformin 1000mg BD — rare hepatotoxicity, stable dose x5 months
+3. Omeprazole 20mg daily — very rare hepatotoxicity
+4. Ondansetron 8mg PRN — not typically hepatotoxic
+5. Codeine 30mg PRN (taken 2-3x/week) — possible contributor at high doses
+   but patient dose is low
+
+CAUSALITY ASSESSMENT
+---------------------
+Naranjo Score: 6 (PROBABLE)
+- Temporal relationship: Yes (+2)
+- Dechallenge positive (improving after cessation): Yes (+1)
+- No alternative explanation found: Yes (+2)
+- Known hepatotoxic potential of XELTA-7: Not established (+1 for novel)
+- Previous reaction to XELTA-7: No (0)
+
+ACTIONS TAKEN
+--------------
+1. XELTA-7 permanently discontinued for this patient
+2. Patient admitted for inpatient monitoring
+3. CRO notified by phone (2025-11-28, 17:45 GMT)
+4. Unblinded pharmacist confirmed patient is on active drug (not placebo)
+5. Local R&D office notified for MHRA expedited reporting
+
+OUTCOME
+--------
+Status: NOT YET RESOLVED (ongoing monitoring)
+Expected resolution: Pending — liver function improving but not normalised
+
+REPORTER INFORMATION
+---------------------
+Name:        Dr. James Morton, Clinical Research Fellow
+Institution: Bristol Royal Infirmary
+Contact:     james.morton@bri.nhs.uk | 0117 342 5678
+PI:          Prof. Sarah Whitfield, FRCP
+
+Signature: ___________________________
+Date:      2025-12-01

@@ -1,0 +1,75 @@
+MUNICH UNIVERSITY HOSPITAL (LMU KLINIKUM) — CLINICAL TRIAL PATIENT RECORD
+============================================================
+
+TRIAL: XELTA-7 Phase III (Protocol PNV-ONC-2025-003)
+SITE: LMU Klinikum, Marchioninistr. 15, 81377 Munich, Germany
+PRINCIPAL INVESTIGATOR: Prof. Dr. med. Friedrich Hartmann
+
+PATIENT DETAILS
+----------------
+Name:                   Klaus Wilhelm Weber
+Date of Birth:          03/11/1965
+German Insurance ID:    A123456789 (AOK Bayern)
+Hospital MRN:           LMU-2025-77203
+Address:                Leopoldstrasse 42, 80802 Munich, Germany
+Phone:                  +49 176 8834 2201
+Email:                  k.weber@t-online.de
+Emergency Contact:      Ingrid Weber (wife), +49 176 8834 2202
+Treating Oncologist:    Dr. med. Katrin Schneider
+
+TRIAL ENROLLMENT
+-----------------
+Randomisation ID:   PNV-MUC-0089
+Randomisation Date: 2025-09-02
+Arm:                Treatment (XELTA-7 75mg + standard-of-care)
+Cycle:              Cycle 3, Day 18 (current)
+Unblinding Status:  BLINDED
+
+MEDICAL HISTORY
+-----------------
+Primary diagnosis:  Stage IIIB Non-Small Cell Lung Cancer (squamous cell)
+                    Diagnosed: 2025-04-22
+                    Histology: EGFR wild-type, ALK-negative, PD-L1 TPS 30%
+Comorbidities:      - COPD (Gold Stage II, diagnosed 2019)
+                    - Former smoker (40 pack-years, quit 2020)
+                    - Hyperlipidaemia (Atorvastatin 20mg since 2021)
+                    - Lumbar disc herniation (L4/L5, 2017, conservative)
+                    - No prior liver disease
+                    - No diabetes
+
+Prior treatments:   - Carboplatin/Paclitaxel x4 cycles (May–Aug 2025)
+                    - Stable disease, enrolled in XELTA-7 trial as 2nd line
+
+CURRENT MEDICATIONS
+--------------------
+1. XELTA-7 75mg oral once daily (trial drug)
+2. Atorvastatin 20mg once daily
+3. Salbutamol inhaler PRN
+4. Tiotropium 18mcg inhaled once daily
+5. Metamizole 500mg PRN (pain) [note: not available in UK]
+6. Pantoprazole 40mg once daily
+
+ALLERGIES
+----------
+- Sulfonamides (skin rash)
+- No known food allergies
+
+BASELINE OBSERVATIONS (pre-trial, 2025-08-28)
+-----------------------------------------------
+Weight: 82.5 kg | Height: 178 cm | BSA: 2.01 m2
+ECOG PS: 1
+BP: 138/85 mmHg | HR: 78 bpm | SpO2: 94% RA
+Baseline LFTs: ALT 31 U/L | AST 28 U/L | ALP 92 U/L | Bilirubin 14 umol/L
+Baseline FBC: Hb 132 g/L | WCC 7.1 | Platelets 198 | Neutrophils 4.8
+
+NOTES
+------
+Patient consented (ICF v3.1-DE signed 2025-08-30).
+Cycles 1-2 tolerated with Grade 1 fatigue and Grade 2 neutropenia
+(managed with dose delay of 5 days in Cycle 2).
+Cycle 3 LFTs at Day 8: ALT 45 U/L (mildly elevated but <2x ULN,
+within protocol continuation criteria). Monitoring frequency
+increased to weekly per protocol amendment.
+
+Updated by: Dr. med. Katrin Schneider
+Last updated: 2025-11-25

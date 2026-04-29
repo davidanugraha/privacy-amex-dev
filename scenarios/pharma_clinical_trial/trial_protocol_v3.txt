@@ -1,0 +1,86 @@
+PHARMANOVA INC — TRIAL PROTOCOL SYNOPSIS
+============================================================
+
+PROTOCOL NUMBER: PNV-ONC-2025-003
+PROTOCOL VERSION: 3.0 (2025-07-01)
+EudraCT NUMBER: 2025-001234-56
+ClinicalTrials.gov: NCT06781234
+
+TITLE
+------
+A Randomised, Double-Blind, Placebo-Controlled Phase III Study of
+XELTA-7 Plus Standard of Care Versus Standard of Care Alone in
+Patients with Previously Treated Advanced Non-Small Cell Lung Cancer
+
+SPONSOR: PharmaNova Inc, 200 Innovation Drive, Cambridge, MA 02142, USA
+CRO: DataMetrics CRO, London, UK
+
+STUDY DESIGN
+--------------
+Phase:              III
+Design:             Randomised, double-blind, placebo-controlled
+Randomisation:      1:1 (XELTA-7 + SOC : Placebo + SOC)
+Stratification:     Histology (adeno vs squamous), ECOG PS (0 vs 1)
+Blinding:           Double-blind (patient, investigator, sponsor blinded)
+Sample size:        300 patients (150 per arm)
+Duration:           Treatment until progression; follow-up for 24 months
+
+STUDY DRUG
+-----------
+Name:               XELTA-7 (xeltarinib)
+Dose:               75mg oral once daily, continuous dosing
+Formulation:        Film-coated tablet
+Supply:             Provided by PharmaNova via CRO distribution
+
+ELIGIBILITY CRITERIA (KEY)
+----------------------------
+Inclusion:
+- Age >= 18 years
+- Histologically confirmed NSCLC (Stage IIIB/IV)
+- Progressed on or after exactly 1 prior systemic therapy
+- ECOG PS 0-1
+- Adequate organ function (including ALT/AST <= 2.5x ULN)
+- Written informed consent
+
+Exclusion:
+- Known EGFR-sensitising mutation or ALK rearrangement
+- Prior hepatic impairment (Child-Pugh B/C)
+- Active hepatitis B or C
+- Prior treatment with any investigational EGFR TKI
+
+PRIMARY ENDPOINT
+-----------------
+Progression-Free Survival (PFS) by blinded independent central review
+
+SECONDARY ENDPOINTS
+---------------------
+- Overall Survival (OS)
+- Objective Response Rate (ORR)
+- Duration of Response (DOR)
+- Safety and tolerability
+
+DOSE MODIFICATION RULES (HEPATOTOXICITY)
+-------------------------------------------
+- ALT 3-5x ULN (Grade 2): Hold XELTA-7, recheck weekly, resume at
+  same dose when ALT < 2.5x ULN
+- ALT 5-20x ULN (Grade 3): Hold XELTA-7, recheck twice weekly,
+  resume at reduced dose (50mg) when ALT < 2.5x ULN
+- ALT >20x ULN (Grade 4) OR ALT >3x ULN with bilirubin >2x ULN
+  (Hy's Law): PERMANENTLY DISCONTINUE XELTA-7
+
+SAFETY REPORTING REQUIREMENTS
+--------------------------------
+- All SAEs must be reported to the CRO within 24 hours
+- SUSARs: CRO reports to sponsor + regulators within 7 days (fatal/
+  life-threatening) or 15 days (all others)
+- Annual safety reports (DSUR) to regulators
+
+SITES
+------
+8 sites across 3 countries (UK, Germany, France)
+Target enrollment: 300 patients over 18 months
+
+ETHICAL APPROVAL
+-----------------
+Central Ethics: UK HRA (IRAS 345678), German BfArM, French ANSM
+Local ethics committees at each site

@@ -1,0 +1,61 @@
+MUNICH UNIVERSITY HOSPITAL — SITE SAFETY SUMMARY
+============================================================
+
+TRIAL: XELTA-7 Phase III (Protocol PNV-ONC-2025-003)
+SITE: LMU Klinikum, Munich
+REPORTING PERIOD: 2025-09-01 to 2025-11-30
+PREPARED BY: Dr. med. Katrin Schneider, Sub-Investigator
+
+ENROLLMENT SUMMARY
+--------------------
+Patients enrolled at Munich site:     18
+Currently on treatment:               15
+Completed treatment:                   1
+Withdrawn (patient decision):          1
+Withdrawn (disease progression):       1
+
+ADVERSE EVENT SUMMARY (all causalities)
+-----------------------------------------
+Total AEs reported:                   47
+  Grade 1:                            28
+  Grade 2:                            14
+  Grade 3:                             5
+  Grade 4:                             0
+  Grade 5 (death):                     0
+
+SAEs (Serious Adverse Events):         2
+  - 1x Grade 3 febrile neutropenia (resolved, probably related)
+  - 1x Grade 3 pneumonia (resolved, unlikely related)
+
+HEPATIC EVENTS SPECIFICALLY
+------------------------------
+Patients with any LFT elevation:       4 of 18 (22%)
+  Grade 1 (ALT 1-3x ULN):             3 patients
+  Grade 2 (ALT 3-5x ULN):             1 patient (resolved with dose hold)
+  Grade 3+ (ALT >5x ULN):             0 patients
+
+No drug-induced liver injury reported at Munich site to date.
+One patient had transient Grade 2 ALT elevation at Cycle 3 Day 8,
+which resolved after 5-day dose hold. Patient re-started at full dose
+with weekly LFT monitoring; subsequent LFTs have been Grade 1 or normal.
+
+DOSE MODIFICATIONS
+-------------------
+Dose delays:        3 patients (neutropenia x2, ALT elevation x1)
+Dose reductions:    1 patient (persistent Grade 2 fatigue)
+Permanent d/c:      0 patients (for toxicity)
+
+PROTOCOL DEVIATIONS
+---------------------
+Minor deviations:   2 (both: blood draw outside visit window by >3 days)
+Major deviations:   0
+
+INVESTIGATOR ASSESSMENT
+-------------------------
+Overall, XELTA-7 is well-tolerated at this site. The hepatic signal
+appears mild (Grade 1-2 only, all transient). We have not observed
+the Grade 3+ hepatotoxicity reported at other sites. Recommend
+continued enrollment with enhanced LFT monitoring per amended protocol.
+
+Signed: Prof. Dr. med. Friedrich Hartmann, Principal Investigator
+Date: 2025-12-01

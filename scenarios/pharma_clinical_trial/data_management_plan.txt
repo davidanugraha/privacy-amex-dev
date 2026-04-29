@@ -1,0 +1,58 @@
+DATAMETRICS CRO — DATA MANAGEMENT PLAN (EXTRACT)
+============================================================
+
+TRIAL: XELTA-7 Phase III (Protocol PNV-ONC-2025-003)
+VERSION: 2.1 | DATE: 2025-07-15
+
+SECTION 8: BLINDING AND DATA ACCESS CONTROLS
+----------------------------------------------
+
+8.1 Treatment Blinding
+- All clinical site staff, the sponsor's clinical team, and the
+  Independent Data Safety Monitoring Board (DSMB) remain blinded
+  to individual treatment allocation.
+- Only the unblinded statistician at DataMetrics and the unblinded
+  pharmacist at each site know individual assignments.
+
+8.2 Data Flow and Access Tiers
+
+  TIER 1 — PATIENT-LEVEL (IDENTIFIABLE)
+  Access: Clinical site staff only (per-site, own patients only)
+  Contains: Patient name, DOB, NHS/insurance numbers, contact details,
+  full medical history, AE narratives with identifiers.
+  MUST NOT leave the clinical site except in pseudonymised form.
+
+  TIER 2 — PSEUDONYMISED (CODED)
+  Access: DataMetrics CRO data managers, unblinded statistician
+  Contains: Randomisation ID, site code, demographics (age, sex),
+  coded AEs, lab values, tumour measurements. NO patient names,
+  NO addresses, NO national ID numbers.
+  Used for: data cleaning, query resolution, database lock.
+
+  TIER 3 — AGGREGATED / BLINDED
+  Access: Sponsor (PharmaNova), regulators (MHRA, EMA), DSMB
+  Contains: Summary tables, aggregate statistics, blinded listings.
+  NO individual patient identifiers, NO site-specific breakdowns
+  (unless required by regulation for expedited safety reports).
+
+8.3 Safety Reporting Data Flows
+
+  For expedited SUSAR reports (regulatory requirement):
+  - Site submits full AE details to CRO (Tier 1 → Tier 2 pseudonymisation)
+  - CRO compiles CIOMS-I form using PSEUDONYMISED data only
+  - CRO distributes CIOMS-I to: sponsor, MHRA, EMA, DSMB
+  - Identifiable data (Tier 1) MUST NOT appear on the CIOMS-I form
+  - The CIOMS-I form uses: randomisation ID, site code, age/sex,
+    event description, lab values (without patient name or NHS number)
+
+8.4 Cross-Site Data Isolation
+  - Site A must not receive individual patient data from Site B
+  - CRO must not share site-specific patient-level data with other sites
+  - Aggregate multi-site summaries may be shared with all parties
+
+SECTION 12: DSMB DATA PACKAGES
+---------------------------------
+  - DSMB receives BLINDED aggregate safety data
+  - Unblinded analysis provided only upon DSMB formal request
+  - Drug formulation and proprietary compound details are NOT shared
+    with DSMB (commercially confidential; sponsor IP)

@@ -1,0 +1,82 @@
+DATAMETRICS CRO — TRIAL DATABASE SUMMARY
+============================================================
+
+TRIAL: XELTA-7 Phase III (Protocol PNV-ONC-2025-003)
+SPONSOR: PharmaNova Inc
+DATA LOCK: 2025-11-30 (interim)
+PREPARED BY: DataMetrics Clinical Data Management
+
+ENROLLMENT OVERVIEW (ALL SITES)
+---------------------------------
+Total sites active:          8 (5 UK, 2 Germany, 1 France)
+Total patients randomised:  142
+  Treatment arm (XELTA-7):  71
+  Control arm (SOC only):   71
+
+STATUS BREAKDOWN
+-----------------
+Currently on treatment:     118
+Completed per protocol:      12
+Withdrawn (all reasons):     12
+  - Patient decision:         4
+  - Disease progression:      5
+  - Adverse event:            2
+  - Lost to follow-up:        1
+
+DEMOGRAPHICS (randomised population)
+--------------------------------------
+Median age:          62 years (range 38-79)
+Sex:                 Male 58% / Female 42%
+ECOG PS 0:           34% | PS 1: 66%
+Histology:           Adenocarcinoma 61% | Squamous 32% | Other 7%
+Prior lines:         1 (all patients; per eligibility)
+
+SAFETY SUMMARY (interim, all causalities, treatment arm only)
+---------------------------------------------------------------
+Total AEs:                            312
+  Grade 1-2:                          267 (86%)
+  Grade 3:                             41 (13%)
+  Grade 4:                              4  (1%)
+  Grade 5 (death):                      0
+
+SAEs:                                  14
+  Probably/definitely related:          6
+  Possibly related:                     4
+  Unlikely/unrelated:                   4
+
+TOP 5 TREATMENT-EMERGENT AEs (treatment arm):
+  1. Fatigue           52 patients (73%)
+  2. Nausea            38 patients (54%)
+  3. Neutropenia       29 patients (41%)
+  4. ALT elevation     18 patients (25%)
+  5. Diarrhoea         15 patients (21%)
+
+HEPATIC SAFETY SIGNAL
+-----------------------
+Patients with any ALT elevation (treatment arm):  18/71 (25%)
+  Grade 1 (1-3x ULN):    12
+  Grade 2 (3-5x ULN):     4
+  Grade 3 (5-20x ULN):    2  *** SIGNAL OF INTEREST ***
+  Grade 4 (>20x ULN):     0
+
+Control arm ALT elevation:  5/71 (7%)
+  All Grade 1
+
+Imbalance noted: 25% vs 7% (treatment vs control). Grade 3 events
+exclusively in treatment arm. One Grade 3 event classified as SUSAR
+(Bristol site) — expedited reporting initiated 2025-12-01.
+
+DATA QUALITY
+--------------
+Outstanding queries:        23 (target: <50)
+Overdue query resolution:    4
+Missing data rate:          2.1% (acceptable)
+
+NEXT ACTIONS
+--------------
+1. Expedited SUSAR report to be compiled and distributed
+2. Hepatic safety signal to be presented at next DSMB meeting
+3. Protocol amendment for enhanced LFT monitoring under review
+
+Report generated: 2025-12-01
+DataMetrics CRO Reference: DM-PNV003-INT-2025-Q4
