@@ -27,6 +27,7 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
         polling_interval: float = 2.0,
         max_steps: int | None = None,
         max_idle_steps: int | None = None,
+        max_tool_rounds: int = 10,
         **kwargs,
     ):
         super().__init__(profile, protocol, database, **kwargs)
@@ -34,6 +35,7 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
         self._polling_interval = polling_interval
         self._max_steps = max_steps
         self._max_idle_steps = max_idle_steps
+        self._max_tool_rounds = max_tool_rounds
         self._step_count = 0
         self._idle_count = 0
 
@@ -84,4 +86,4 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
             user_content = "No new messages. Continue with your task if you have pending work, or call mark_done if finished."
 
         system_prompt = build_system_prompt(self.profile, self._peer_ids)
-        await self._run_agentic_loop(user_content, system=system_prompt)
+        await self._run_agentic_loop(user_content, system=system_prompt, max_tool_rounds=self._max_tool_rounds)

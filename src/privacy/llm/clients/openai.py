@@ -133,11 +133,132 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
             except Exception as e:
                 exceptions.append(e)
                 args["messages"].append({"role": "user", "content": str(e)})
+        raise Exception(
+            "Failed to _generate_struct: Exceeded maximum retries. Inner exceptions: "
+            + " -> ".join(exceptions)
+        )
+        
+    async def _generate_agentic_reasoning(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> AgenticResponse:
+        """GPT-5-only agentic reasoning with tool calling (Responses API)."""
 
-        msg = "Exceeded attempts to parse response_format."
-        if exceptions:
-            msg += " Inner exceptions: " + " ".join(map(str, exceptions))
-        raise RuntimeError(msg)
+        def to_responses_input(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            input_items: list[dict[str, Any]] = []
+
+            for msg in messages:
+                role = msg["role"]
+
+                # Keep only legal message fields for Responses input.
+                if role in {"user", "system", "developer"}:
+                    input_items.append(
+                        {
+                            "role": role,
+                            "content": msg.get("content", ""),
+                        }
+                    )
+
+                # Assistant messages with tool_calls → emit function_call items
+                elif role == "assistant" and msg.get("tool_calls"):
+                    for tc in msg["tool_calls"]:
+                        args = tc.get("arguments", {})
+                        if isinstance(args, dict):
+                            args = json.dumps(args)
+                        input_items.append({
+                            "type": "function_call",
+                            "call_id": tc["id"],
+                            "name": tc["name"],
+                            "arguments": args,
+                        })
+
+                # Tool results → function_call_output items
+                elif role == "tool":
+                    input_items.append({
+                        "type": "function_call_output",
+                        "call_id": msg.get("tool_use_id") or msg.get("tool_call_id", ""),
+                        "output": msg.get("content", ""),
+                    })
+            return input_items
+
+        def to_responses_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [
+                {
+                    "type": "function",
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t["parameters"],
+                }
+                for t in tools
+            ]
+
+        def normalize_args(x: Any) -> dict[str, Any]:
+            if isinstance(x, dict):
+                return x
+            if isinstance(x, str):
+                try:
+                    return json.loads(x)
+                except json.JSONDecodeError:
+                    return {}
+            return {}
+
+        reasoning_effort = kwargs.pop("reasoning_effort", "low")
+
+        response = await self.client.responses.create(
+            model=model,
+            reasoning={"effort": reasoning_effort},
+            input=to_responses_input(messages),
+            tools=to_responses_tools(tools),
+            temperature=temperature,
+            max_output_tokens=max_tokens or 4096,
+            **kwargs,
+        )
+
+        text = getattr(response, "output_text", "") or ""
+
+        tool_calls: list[ToolCallInfo] = []
+        for item in getattr(response, "output", []) or []:
+            if getattr(item, "type", None) == "function_call":
+                tool_calls.append(
+                    ToolCallInfo(
+                        id=getattr(item, "call_id", "") or getattr(item, "id", ""),
+                        name=getattr(item, "name", ""),
+                        arguments=normalize_args(getattr(item, "arguments", {})),
+                    )
+                )
+
+        usage = Usage(
+            token_count=getattr(response.usage, "total_tokens", 0)
+            if getattr(response, "usage", None)
+            else 0,
+            provider="openai",
+            model=model,
+        )
+
+        raw_assistant = {
+            "role": "assistant",
+            "content": text,
+            "text": text,
+            "tool_calls": [tc.model_dump() for tc in tool_calls],
+        }
+
+        stop_reason = getattr(response, "status", "") or ""
+        if stop_reason == "incomplete" and getattr(response, "incomplete_details", None):
+            stop_reason = getattr(response.incomplete_details, "reason", "") or stop_reason
+
+        return AgenticResponse(
+            text=text,
+            tool_calls=tool_calls,
+            stop_reason=stop_reason,
+            usage=usage,
+            raw_assistant_message=raw_assistant,
+        )
 
     async def _generate_agentic(
         self,
@@ -150,6 +271,19 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
         **kwargs: Any,
     ) -> AgenticResponse:
         """Generate with tool-use support via OpenAI API."""
+        is_reasoning_model = any(
+            prefix in model for prefix in ("gpt-5", "o4", "o3", "o1")
+        )
+
+        if is_reasoning_model:
+            return await self._generate_agentic_reasoning(
+                model=model,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                **kwargs,
+            )
+        
         openai_messages: list[ChatCompletionMessageParam] = []
         for msg in messages:
             role = msg["role"]
