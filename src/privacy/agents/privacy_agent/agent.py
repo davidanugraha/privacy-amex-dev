@@ -47,9 +47,10 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
 
     async def on_started(self) -> None:
         self.logger.info(
-            f"PrivacyAgent started: {self.profile.principal.name}",
+            f"PrivacyAgent started: {self.profile.role.organization}",
             data={
-                "principal": self.profile.principal.name,
+                "organization": self.profile.role.organization,
+                "role_type": self.profile.role.type,
                 "artifacts": [a.name for a in self.profile.artifacts],
                 "sandbox_image": self.profile.sandbox_image,
                 "sandbox_backend": self.profile.sandbox_backend,

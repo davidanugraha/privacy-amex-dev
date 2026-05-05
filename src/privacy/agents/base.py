@@ -25,7 +25,7 @@ from src.privacy.core import (
     TextMessage,
 )
 from src.privacy.database.base import BaseDatabaseController
-from src.privacy.database.models import AgentRow
+from src.privacy.database.models import ActionRow, ActionRowData, AgentRow
 from src.privacy.logger import PrivacyLogger
 from src.privacy.protocol.base import BasePrivacyProtocol
 
@@ -338,6 +338,15 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
             })
 
         if name == "mark_done":
+            await self._database.actions.create(ActionRow(
+                id="",
+                created_at=datetime.now(UTC),
+                data=ActionRowData(
+                    agent_id=self.id,
+                    request=ActionExecutionRequest(name="MarkDone", parameters={}),
+                    result=ActionExecutionResult(content={}, is_error=False, metadata={}),
+                ),
+            ))
             self.shutdown()
             return json.dumps({"status": "done"})
 
