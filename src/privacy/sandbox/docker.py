@@ -12,7 +12,9 @@ is actually constructed.
 import asyncio
 import io
 import tarfile
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from src.privacy.core import ExecuteCommandResult
@@ -44,6 +46,8 @@ class DockerSandbox:
         self._network_disabled = network_disabled
         self._workdir = workdir
         self._containers: dict[str, Any] = {}
+        self._snapshot_root = Path(tempfile.mkdtemp(prefix="privacy-docker-snap-"))
+        self._snapshots: dict[str, Path] = {}
 
     async def setup(
         self,
@@ -164,8 +168,44 @@ class DockerSandbox:
 
     def _teardown_blocking(self, agent_id: str) -> None:
         container = self._containers.pop(agent_id, None)
-        if container is not None:
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
+        if container is None:
+            return
+        try:
+            self._snapshot_workspace(agent_id, container)
+        except Exception:
+            pass
+        try:
+            container.remove(force=True)
+        except Exception:
+            pass
+
+    def _snapshot_workspace(self, agent_id: str, container: Any) -> None:
+        snap_dir = self._snapshot_root / f"agent-{agent_id}"
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        self._snapshots[agent_id] = snap_dir
+        stream, _ = container.get_archive(self._workdir)
+        buf = io.BytesIO(b"".join(stream))
+        buf.seek(0)
+        with tarfile.open(fileobj=buf, mode="r") as tar:
+            # Strip the leading workdir component so paths are relative
+            root_name = Path(self._workdir).name
+            for member in tar.getmembers():
+                name = Path(member.name)
+                parts = name.parts
+                if parts and parts[0] == root_name:
+                    member.name = str(Path(*parts[1:])) if len(parts) > 1 else ""
+                if not member.name:
+                    continue
+                tar.extract(member, path=snap_dir)
+
+    async def read_file(self, agent_id: str, path: str) -> str | None:
+        snap = self._snapshots.get(agent_id)
+        if snap is None:
+            return None
+        target = snap / path
+        if not target.is_file():
+            return None
+        try:
+            return target.read_text()
+        except (OSError, UnicodeDecodeError):
+            return None

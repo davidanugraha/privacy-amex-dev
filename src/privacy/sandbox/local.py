@@ -26,6 +26,7 @@ class LocalSubprocessSandbox:
         self._root.mkdir(parents=True, exist_ok=True)
         self._cleanup_on_teardown = cleanup_on_teardown
         self._workspaces: dict[str, Path] = {}
+        self._retired_workspaces: dict[str, Path] = {}
 
     async def setup(
         self,
@@ -88,5 +89,20 @@ class LocalSubprocessSandbox:
 
     async def teardown(self, agent_id: str) -> None:
         ws = self._workspaces.pop(agent_id, None)
-        if ws is not None and self._cleanup_on_teardown:
-            shutil.rmtree(ws, ignore_errors=True)
+        if ws is not None:
+            self._retired_workspaces[agent_id] = ws
+            if self._cleanup_on_teardown:
+                shutil.rmtree(ws, ignore_errors=True)
+                self._retired_workspaces.pop(agent_id, None)
+
+    async def read_file(self, agent_id: str, path: str) -> str | None:
+        ws = self._workspaces.get(agent_id) or self._retired_workspaces.get(agent_id)
+        if ws is None:
+            return None
+        target = ws / path
+        if not target.is_file():
+            return None
+        try:
+            return target.read_text()
+        except (OSError, UnicodeDecodeError):
+            return None

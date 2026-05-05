@@ -56,3 +56,11 @@ class Sandbox(Protocol):
         in-memory handles).
         """
         ...
+
+    async def read_file(self, agent_id: str, path: str) -> str | None:
+        """Read a file from the agent's workspace. Returns None if missing.
+
+        Used by post-run evaluators (`FileExists` criterion, etc). Path is
+        relative to the workspace root.
+        """
+        ...
