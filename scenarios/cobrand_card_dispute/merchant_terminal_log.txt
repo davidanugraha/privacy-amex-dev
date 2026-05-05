@@ -1,0 +1,30 @@
+Polaris Acquiring — Terminal Reconciliation Log
+================================================
+
+Merchant:     Berghain Boutique
+Address:      Wühlischstraße 14, 10245 Berlin, DE
+Merchant ID:  POL-DE-44829
+Terminal ID:  BB-POS-04
+Date:         2026-08-15
+
+  22:14:33  CHIP+PIN  APPROVED   €1,103.42  *1109   (USD ~$1,242)
+            CVM: PIN entered correctly on first attempt
+            POS geo: Friedrichshain, 10245
+            Authorization code: 882471
+
+  No prior failed attempts on this terminal for this card.
+
+----------------------------------------------------------------
+
+Merchant:     Berlin Spree Spa
+Address:      Reinhardtstraße 8, 10117 Berlin, DE
+Merchant ID:  POL-DE-31094
+Terminal ID:  BSS-POS-01
+Date:         2026-08-16
+
+  19:22:09  CHIP+PIN  APPROVED   €537.10    *1109   (USD ~$605)
+            CVM: PIN entered correctly on first attempt
+            POS geo: Mitte, 10117
+            Authorization code: 994022
+
+  No prior failed attempts on this terminal for this card.

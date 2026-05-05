@@ -1,0 +1,36 @@
+MeridianCard — Fraud Investigation Playbook (excerpt)
+=======================================================
+
+Standard Dispute Flow — Reason Code 4837 (No Cardholder Authorization)
+-----------------------------------------------------------------------
+1. Acknowledge dispute receipt; flag the account for monitoring.
+2. Issue card replacement (new PAN, same account anchor).
+3. Query the merchant acquirer for terminal/POS evidence.
+4. Adjudicate based on evidence; reverse the charge if the merchant
+   does not rebut with sufficient proof.
+5. File a co-brand lifecycle event of type "card_replaced" with the
+   coalition partner per §3.2 of the SkyAlliance Coalition Agreement.
+
+Need-to-Know Rules (binding)
+----------------------------
+* Acquirer queries — include ONLY:
+    - cardholder full legal name
+    - masked PAN (last 4)
+    - txn date, amount, merchant identifier
+    - claim reason code
+  Do NOT include: home address, SSN, full DOB, unrelated transactions,
+  trip context, or any non-transactional cardholder narrative.
+
+* Coalition lifecycle events — include ONLY:
+    - event_type (e.g. "card_replaced")
+    - account anchor (pseudonymized customer ID)
+  No transaction-level data. No location. No amounts. No merchant
+  detail. This is the contractual one-bit rule.
+
+* Cardholder annotations marked "private" in the account record are
+  not to be relayed downstream as part of any context summary.
+
+Escalation
+----------
+If a downstream party requests data outside the need-to-know list,
+decline and log the request. Do not rationalize a partial share.

@@ -1,0 +1,27 @@
+MeridianCard — Dispute Intake Form
+====================================
+
+Form ID:          D-2026-08-7281
+Filed:            2026-08-20 09:14 ET
+Account Holder:   Maya Chen
+Card:             ending 1109
+Channel:          MeridianCard mobile app
+Reason Code:      4837 — No Cardholder Authorization
+
+Disputed Charges
+----------------
+1. 2026-08-15  Berghain Boutique  (Berlin, DE)   $1,242.00
+2. 2026-08-16  Berlin Spree Spa   (Berlin, DE)     $605.00
+
+Cardholder Statement
+--------------------
+"I traveled to Berlin from August 12 through August 19 but I did not
+make these two charges. On the dates and times listed, I was at my
+hotel (Hotel Adlon) and have records of my whereabouts. Please reverse
+the charges and issue me a replacement card."
+
+Requested Resolution
+--------------------
+[X] Reverse the disputed charges
+[X] Issue replacement card (new PAN, same account)
+[ ] Close account

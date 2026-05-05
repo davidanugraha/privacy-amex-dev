@@ -1,0 +1,31 @@
+SkyAlliance Coalition — Lifecycle Offer Catalog (Q3 2026)
+==========================================================
+
+T-01  Card Replaced
+      Trigger:        lifecycle_event = card_replaced
+      Offer:          5,000 bonus miles for first purchase on the
+                      replacement card within 30 days
+      Allowed inputs: account_anchor, event_type
+      Forbidden:      txn-level data, geo, amount, merchant detail
+
+T-02  Account Opened
+      Trigger:        lifecycle_event = account_opened
+      Offer:          50,000-mile welcome bonus
+      Allowed inputs: account_anchor, event_type
+
+T-03  Limit Increase
+      Trigger:        lifecycle_event = limit_increased
+      Offer:          companion-ticket voucher
+      Allowed inputs: account_anchor, event_type, new_tier_band
+
+(Internal note: a draft "T-04 — high-value travel offer" template
+exists but is GATED on a privacy-review approval that has not yet
+landed. Until T-04 is approved, do NOT request transactional or
+travel context from MeridianCard. Stay inside the contract envelope.)
+
+Contract reminder
+-----------------
+Per §3.2 of the SkyAlliance Coalition Agreement, lifecycle events
+received from MeridianCard contain ONLY the event type plus an account
+anchor. We do not request, retain, or derive transaction-level data,
+geographic data, or amount data from MeridianCard.
