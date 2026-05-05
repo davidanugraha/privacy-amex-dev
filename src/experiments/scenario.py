@@ -8,6 +8,8 @@ import yaml
 
 from src.privacy.agents.privacy_agent.models import PrivacyAgentProfile
 
+from .evaluation import Criterion, DataSubject, SensitiveClaim, parse_criteria
+
 
 @dataclass
 class ScenarioAgent:
@@ -31,7 +33,13 @@ class Scenario:
     max_steps: int = 20
     max_idle_steps: int = 5
     max_tool_rounds: int = 10
+    max_wall_seconds: int | None = None
+    terminator_agent: str | None = None
     sandbox_backend: Literal["docker", "local"] = "local"
+    success_criteria: list[Criterion] = field(default_factory=list)
+    data_subjects: list[DataSubject] = field(default_factory=list)
+    sensitive_claims: list[SensitiveClaim] = field(default_factory=list)
+    expected_failure_modes: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _resolve_sandbox_files(
@@ -72,6 +80,13 @@ def load_scenario(path: str | Path) -> Scenario:
             sandbox_files=sandbox_files,
         ))
 
+    data_subjects = [
+        DataSubject.model_validate(d) for d in raw.get("data_subjects", [])
+    ]
+    sensitive_claims = [
+        SensitiveClaim.model_validate(c) for c in raw.get("sensitive_claims", [])
+    ]
+
     return Scenario(
         name=raw["name"],
         description=raw.get("description", ""),
@@ -82,5 +97,15 @@ def load_scenario(path: str | Path) -> Scenario:
         max_steps=raw.get("max_steps", 20),
         max_idle_steps=raw.get("max_idle_steps", 5),
         max_tool_rounds=raw.get("max_tool_rounds", 10),
+        max_wall_seconds=raw.get("max_wall_seconds"),
+        terminator_agent=raw.get("terminator_agent"),
         sandbox_backend=raw.get("sandbox_backend", "local"),
+        success_criteria=parse_criteria(
+            raw.get("success_criteria"),
+            agents=[a.profile for a in agents],
+            sensitive_claims=sensitive_claims,
+        ),
+        data_subjects=data_subjects,
+        sensitive_claims=sensitive_claims,
+        expected_failure_modes=list(raw.get("expected_failure_modes", [])),
     )

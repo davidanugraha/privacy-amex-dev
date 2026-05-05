@@ -306,6 +306,24 @@ body.show-fetch .card.fetch-row { display: block; }
 .tool-name { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600;
              color: #1e40af; }
 .tool-id { font-family: ui-monospace, monospace; font-size: 10px; color: #9ca3af; }
+.verification .score { font-size: 13px; color: #374151; font-weight: 600; }
+.criteria { display: flex; flex-direction: column; gap: 4px; }
+.criterion { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+             padding: 6px 10px; border-radius: 4px; font-size: 13px;
+             border-left: 3px solid #9ca3af; }
+.criterion.passed { background: #f0fdf4; border-left-color: #10b981; }
+.criterion.failed { background: #fef2f2; border-left-color: #ef4444; }
+.criterion .mark { font-family: ui-monospace, monospace; font-size: 11px;
+                   font-weight: 700; min-width: 36px; }
+.criterion.passed .mark { color: #065f46; }
+.criterion.failed .mark { color: #991b1b; }
+.criterion .ckind { font-family: ui-monospace, monospace; font-size: 11px;
+                    color: #6b7280; background: white; padding: 1px 6px;
+                    border-radius: 3px; }
+.criterion .cdesc { color: #111827; flex: 1; }
+.criterion .cweight { font-size: 11px; color: #9ca3af; font-family: ui-monospace, monospace; }
+.criterion .cdetail { flex-basis: 100%; margin-top: 4px; color: #6b7280;
+                      font-size: 12px; padding-left: 46px; }
 """
 
 _JS = """
@@ -314,6 +332,37 @@ document.getElementById('show-fetch').addEventListener('change', function(e) {
   document.body.classList.toggle('show-fetch', e.target.checked);
 });
 """
+
+
+def _render_verification(verification: dict[str, Any] | None) -> str:
+    if not verification:
+        return ""
+    results = verification.get("results") or []
+    if not results:
+        return ""
+    total = verification.get("score", 0.0)
+    parts: list[str] = []
+    parts.append('<section class="section verification">')
+    parts.append('<div class="section-header">')
+    parts.append(f'<h2>Verification</h2>')
+    parts.append(f'<span class="score">score {float(total):.2f}</span>')
+    parts.append('</div>')
+    parts.append('<div class="criteria">')
+    for r in results:
+        passed = bool(r.get("passed"))
+        cls = "criterion passed" if passed else "criterion failed"
+        mark = "PASS" if passed else "FAIL"
+        parts.append(f'<div class="{cls}">')
+        parts.append(f'<span class="mark">{mark}</span>')
+        parts.append(f'<span class="ckind">{_esc(r.get("kind",""))}</span>')
+        parts.append(f'<span class="cdesc">{_esc(r.get("description",""))}</span>')
+        parts.append(f'<span class="cweight">w={_esc(r.get("weight",1.0))}</span>')
+        if r.get("detail"):
+            parts.append(f'<div class="cdetail">{_esc(r.get("detail",""))}</div>')
+        parts.append('</div>')
+    parts.append('</div>')
+    parts.append('</section>')
+    return "".join(parts)
 
 
 def _render_header(
@@ -370,9 +419,18 @@ def generate_report(run_dir: Path | str) -> Path:
     actions_path = run_dir / "actions.jsonl"
     actions = _read_jsonl(actions_path) if actions_path.exists() else []
 
+    verification_path = run_dir / "verification.json"
+    verification: dict[str, Any] | None = None
+    if verification_path.exists():
+        try:
+            verification = json.loads(verification_path.read_text())
+        except json.JSONDecodeError:
+            verification = None
+
     body_parts: list[str] = []
     body_parts.append('<div class="wrap">')
     body_parts.append(_render_header(scenario_name, timestamp, agents, actions))
+    body_parts.append(_render_verification(verification))
     body_parts.append(_render_timeline(actions))
     body_parts.append('<section class="section">')
     body_parts.append('<div class="section-header"><h2>Agent conversations</h2></div>')
