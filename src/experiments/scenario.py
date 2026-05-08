@@ -30,6 +30,7 @@ class Scenario:
     kickoff_message: str
     kickoff_from: str = "system"
     kickoff_channel: str = "general"
+    kickoff_to: str | None = None
     max_steps: int = 20
     max_idle_steps: int = 5
     max_tool_rounds: int = 10
@@ -37,9 +38,12 @@ class Scenario:
     terminator_agent: str | None = None
     sandbox_backend: Literal["docker", "local"] = "local"
     success_criteria: list[Criterion] = field(default_factory=list)
+    goal: str | None = None
     data_subjects: list[DataSubject] = field(default_factory=list)
     sensitive_claims: list[SensitiveClaim] = field(default_factory=list)
     expected_failure_modes: list[dict[str, Any]] = field(default_factory=list)
+    provenance_store_content: bool = False
+    provenance_policy: str | None = None
 
 
 def _resolve_sandbox_files(
@@ -94,6 +98,7 @@ def load_scenario(path: str | Path) -> Scenario:
         kickoff_message=raw["kickoff_message"],
         kickoff_from=raw.get("kickoff_from", "system"),
         kickoff_channel=raw.get("kickoff_channel", "general"),
+        kickoff_to=raw.get("kickoff_to"),
         max_steps=raw.get("max_steps", 20),
         max_idle_steps=raw.get("max_idle_steps", 5),
         max_tool_rounds=raw.get("max_tool_rounds", 10),
@@ -104,8 +109,12 @@ def load_scenario(path: str | Path) -> Scenario:
             raw.get("success_criteria"),
             agents=[a.profile for a in agents],
             sensitive_claims=sensitive_claims,
+            goal=raw.get("goal"),
         ),
+        goal=raw.get("goal"),
         data_subjects=data_subjects,
         sensitive_claims=sensitive_claims,
         expected_failure_modes=list(raw.get("expected_failure_modes", [])),
+        provenance_store_content=raw.get("provenance_store_content", False),
+        provenance_policy=raw.get("provenance_policy"),
     )

@@ -5,9 +5,9 @@ A host framework integrates by calling three methods at the right points:
   - `record_tool_use` when an agent's tool/command call completes
   - `record_send` when dispatching a DM or channel/broadcast message
 
-`check_send` is a stub for v1 — kept on the API so that future enforcer
-modes (block / redact / negotiate) become a method body change rather
-than a surface change.
+Two orthogonal modes:
+  - storage axis (`store_content`): metadata-only (default) vs. full content
+  - enforcement axis (`policy`): observer (default, no policy) vs. enforcer
 """
 
 import hashlib
@@ -19,10 +19,7 @@ from typing import Any
 from .attribution import Attributor, PathSubstringAttributor
 from .graph import ProvenanceGraph
 from .nodes import ArtifactNode, MessageNode, ProvenanceEdge
-
-
-class PolicyViolation(Exception):
-    """Raised by an enforcing `check_send` to veto a send. Unused in v1."""
+from .policy import Policy, SendContext
 
 
 def _hash(s: str) -> str:
@@ -36,16 +33,35 @@ def _preview(s: str, n: int = 300) -> str:
 class ProvenanceRecorder:
     """Stateful recorder. One instance per scenario / experiment run."""
 
-    def __init__(self, attributor: Attributor | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        store_content: bool = False,
+        policy: Policy | None = None,
+        attributor: Attributor | None = None,
+    ) -> None:
+        if policy is not None and "content" in policy.requires and not store_content:
+            raise ValueError(
+                f"Policy {type(policy).__name__} requires content but recorder "
+                f"is in metadata-only mode. Pass store_content=True or use a "
+                f"metadata-only policy."
+            )
+        self._store_content = store_content
+        self._policy = policy
         self._graph = ProvenanceGraph()
         self._attributor: Attributor = attributor or PathSubstringAttributor()
         self._artifacts_by_agent: dict[str, dict[str, ArtifactNode]] = {}
         self._ingested_by_agent: dict[str, set[str]] = {}
+        self._full_content: dict[str, str] = {}
         self._lock = Lock()
 
     @property
     def graph(self) -> ProvenanceGraph:
         return self._graph
+
+    def get_full_content(self, node_id: str) -> str | None:
+        """Return the full content for `node_id`, or None in metadata mode."""
+        return self._full_content.get(node_id)
 
     def record_artifact(
         self,
@@ -70,6 +86,8 @@ class ProvenanceRecorder:
                 created_at=datetime.now(UTC),
             )
             self._artifacts_by_agent.setdefault(agent_id, {})[node_id] = node
+            if self._store_content:
+                self._full_content[node_id] = content
         self._graph.add_node(node)
         return node
 
@@ -118,6 +136,8 @@ class ProvenanceRecorder:
         self._graph.add_node(msg_node)
 
         with self._lock:
+            if self._store_content:
+                self._full_content[node_id] = content
             sources = list(self._ingested_by_agent.get(sender_agent_id, ()))
         now = datetime.now(UTC)
         for src_id in sources:
@@ -135,10 +155,22 @@ class ProvenanceRecorder:
     async def check_send(
         self,
         *,
-        sender_agent_id: str,  # noqa: ARG002
-        recipient_agent_id: str | None,  # noqa: ARG002
-        channel: str | None,  # noqa: ARG002
-        content: str,  # noqa: ARG002
+        sender_agent_id: str,
+        recipient_agent_id: str | None,
+        channel: str | None,
+        content: str,
     ) -> None:
-        """Pre-send policy hook. No-op in v1; raise PolicyViolation to block."""
-        return None
+        """Delegate to the wired policy; no-op when none is configured.
+
+        Raises `PolicyViolation` (from the policy) to block a send.
+        """
+        if self._policy is None:
+            return
+        ctx = SendContext(
+            sender_agent_id=sender_agent_id,
+            recipient_agent_id=recipient_agent_id,
+            channel=channel,
+            content=content,
+            recorder=self,
+        )
+        await self._policy.check_send(ctx)

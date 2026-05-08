@@ -17,7 +17,7 @@ from src.privacy.database.base import BaseDatabaseController
 from src.privacy.database.models import ActionRow, ActionRowData
 from src.privacy.protocol.base import BasePrivacyProtocol
 from src.privacy.sandbox import Sandbox, build_sandbox
-from src.provenance import ProvenanceRecorder
+from src.provenance import PolicyViolation, ProvenanceRecorder
 
 from .execute_command import execute_execute_command
 from .messaging import (
@@ -88,26 +88,46 @@ class PrivacyProtocol(BasePrivacyProtocol):
         database: BaseDatabaseController,
     ) -> ActionExecutionResult:
         if isinstance(parsed_action, SendMessage):
+            content = _message_text(parsed_action.message)
+            if self._recorder is not None:
+                blocked = await self._check_policy(
+                    sender_agent_id=parsed_action.from_agent_id,
+                    recipient_agent_id=parsed_action.to_agent_id,
+                    channel=None,
+                    content=content,
+                )
+                if blocked is not None:
+                    return blocked
             result = await execute_send_message(parsed_action, database)
             if self._recorder is not None:
                 self._recorder.record_send(
                     sender_agent_id=parsed_action.from_agent_id,
                     recipient_agent_id=parsed_action.to_agent_id,
                     channel=None,
-                    content=_message_text(parsed_action.message),
+                    content=content,
                     delivered=not result.is_error,
                     delivery_error=_error_text(result),
                 )
             return result
 
         if isinstance(parsed_action, ChannelMessage):
+            content = _message_text(parsed_action.message)
+            if self._recorder is not None:
+                blocked = await self._check_policy(
+                    sender_agent_id=parsed_action.from_agent_id,
+                    recipient_agent_id=None,
+                    channel=parsed_action.channel,
+                    content=content,
+                )
+                if blocked is not None:
+                    return blocked
             result = await execute_channel_message(parsed_action, self._channels)
             if self._recorder is not None:
                 self._recorder.record_send(
                     sender_agent_id=parsed_action.from_agent_id,
                     recipient_agent_id=None,
                     channel=parsed_action.channel,
-                    content=_message_text(parsed_action.message),
+                    content=content,
                     delivered=not result.is_error,
                     delivery_error=_error_text(result),
                 )
@@ -139,6 +159,42 @@ class PrivacyProtocol(BasePrivacyProtocol):
             return result
 
         raise ValueError(f"Unknown action type: {parsed_action.type}")
+
+    async def _check_policy(
+        self,
+        *,
+        sender_agent_id: str,
+        recipient_agent_id: str | None,
+        channel: str | None,
+        content: str,
+    ) -> ActionExecutionResult | None:
+        """Run the recorder's policy hook; return a blocked-result on veto.
+
+        Caller has already verified `self._recorder is not None`.
+        """
+        assert self._recorder is not None
+        try:
+            await self._recorder.check_send(
+                sender_agent_id=sender_agent_id,
+                recipient_agent_id=recipient_agent_id,
+                channel=channel,
+                content=content,
+            )
+        except PolicyViolation as e:
+            self._recorder.record_send(
+                sender_agent_id=sender_agent_id,
+                recipient_agent_id=recipient_agent_id,
+                channel=channel,
+                content=content,
+                delivered=False,
+                delivery_error=str(e),
+            )
+            return ActionExecutionResult(
+                content={"error": str(e)},
+                is_error=True,
+                metadata={"status": "blocked_by_policy"},
+            )
+        return None
 
 
 def _message_text(message) -> str:

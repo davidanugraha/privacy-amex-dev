@@ -20,6 +20,7 @@ from src.privacy.core import (
     ActionExecutionRequest,
     ActionExecutionResult,
     ChannelMessage,
+    SendMessage,
     TextMessage,
 )
 from src.privacy.database.base import BaseDatabaseController
@@ -28,7 +29,7 @@ from src.privacy.database.models import ActionRow, ActionRowData
 from src.privacy.protocol.protocol import PrivacyProtocol
 from src.privacy.sandbox import build_sandbox
 from src.privacy.sandbox.base import Sandbox
-from src.provenance import ProvenanceRecorder
+from src.provenance import Policy, ProvenanceRecorder
 from src.provenance.integrations.privacy_protocol import RecordingSandbox
 
 from .evaluation import evaluate_criteria, score
@@ -53,20 +54,30 @@ async def kickoff(
     *,
     channel: str = "general",
     from_agent_id: str = "system",
+    to_agent_id: str | None = None,
     recorder: ProvenanceRecorder | None = None,
 ) -> None:
-    """Inject a channel message before agents start stepping.
+    """Inject a kickoff message before agents start stepping.
 
-    Call this AFTER agents have registered (or after manually populating
-    the general channel) but BEFORE `run_agents`. Every agent in the
-    channel will see this message on their first `fetch_messages` call.
+    When `to_agent_id` is set, the kickoff is a DM to that single agent;
+    otherwise it's a channel broadcast to `channel`. Call AFTER agents
+    have been constructed but BEFORE `run_agents` — recipients pick the
+    message up on their first `fetch_messages`.
     """
-    action = ChannelMessage(
-        from_agent_id=from_agent_id,
-        channel=channel,
-        created_at=datetime.now(UTC),
-        message=TextMessage(content=content),
-    )
+    if to_agent_id is not None:
+        action = SendMessage(
+            from_agent_id=from_agent_id,
+            to_agent_id=to_agent_id,
+            created_at=datetime.now(UTC),
+            message=TextMessage(content=content),
+        )
+    else:
+        action = ChannelMessage(
+            from_agent_id=from_agent_id,
+            channel=channel,
+            created_at=datetime.now(UTC),
+            message=TextMessage(content=content),
+        )
     request = ActionExecutionRequest(
         name=action.get_name(),
         parameters=action.model_dump(mode="json"),
@@ -88,8 +99,8 @@ async def kickoff(
     if recorder is not None:
         recorder.record_send(
             sender_agent_id=from_agent_id,
-            recipient_agent_id=None,
-            channel=channel,
+            recipient_agent_id=to_agent_id,
+            channel=None if to_agent_id is not None else channel,
             content=content,
             delivered=True,
         )
@@ -157,7 +168,10 @@ async def run_scenario(
 ) -> ExperimentResult:
     """Build agents from a scenario spec, kick off, run to completion."""
     db = MemoryDatabase()
-    recorder = ProvenanceRecorder()
+    recorder = ProvenanceRecorder(
+        store_content=scenario.provenance_store_content,
+        policy=_build_policy(scenario.provenance_policy),
+    )
     real_sandbox = build_sandbox(scenario.sandbox_backend)
     sandbox = RecordingSandbox(real_sandbox, recorder)
     protocol = PrivacyProtocol(sandbox=sandbox, recorder=recorder)
@@ -180,6 +194,7 @@ async def run_scenario(
         scenario.kickoff_message,
         from_agent_id=scenario.kickoff_from,
         channel=scenario.kickoff_channel,
+        to_agent_id=scenario.kickoff_to,
         recorder=recorder,
     )
 
@@ -233,6 +248,21 @@ async def _run_verification(
         "results": [r.to_dict() for r in results],
     }
     (output_path / "verification.json").write_text(json.dumps(verification, indent=2))
+
+
+def _build_policy(name: str | None) -> Policy | None:
+    """Resolve a policy name from scenario config to an instance.
+
+    Returns None when no policy is configured. Raises on unknown names so
+    a typo in the YAML fails loudly instead of silently running observer-mode.
+    Concrete policies will register here as they're implemented.
+    """
+    if name is None:
+        return None
+    raise ValueError(
+        f"Unknown provenance policy: {name!r}. No concrete policies are "
+        f"wired yet — leave provenance_policy unset for now."
+    )
 
 
 def _build_agent(
