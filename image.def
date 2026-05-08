@@ -1,0 +1,31 @@
+Bootstrap: docker
+From: python:3.11-slim
+
+%files
+    requirements.txt /app/requirements.txt
+    src/ /app/
+    scenarios/ /app/
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+    pip install --no-cache-dir -r /app/requirements.txt
+
+%environment
+    export PYTHONPATH=/app:$PYTHONPATH
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+%runscript
+    cd /app
+    python -m src.experiments.runner "$@"
+
+%help
+    Privacy Multi-Agent Framework — experiment runner.
+
+    Build:
+        apptainer build privacy-experiment.sif privacy-experiment.def
+
+    Run:
+        apptainer run --writable-tmpfs --env-file .env --bind ./outputs:/app/outputs privacy-experiment.sif scenarios/gdpr_healthcare_transitive/scenario.yaml
+
+    The container filesystem is read-only by default.
+    Agent sandbox commands cannot affect the host.
