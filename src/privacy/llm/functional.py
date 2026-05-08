@@ -21,7 +21,7 @@ from .base import (
 from .clients.anthropic import AnthropicClient, AnthropicConfig
 from .clients.gemini import GeminiClient, GeminiConfig
 from .clients.openai import OpenAIClient, OpenAIConfig
-from .config import EXCLUDE_FIELDS, LLM_PROVIDER
+from .config import EXCLUDE_FIELDS, LLM_PROVIDER, BaseLLMConfig
 
 ConcreteLLMConfigs = Annotated[
     AnthropicConfig | GeminiConfig | OpenAIConfig,
@@ -38,15 +38,20 @@ def _build_client(
     reasoning_effort: str | int | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Resolve config + construct cached client. Returns (client, config_kwargs)."""
-    config_kwargs = {
+    # Route through BaseLLMConfig so EnvField defaults fire for any field the
+    # caller omitted. The discriminated-union TypeAdapter picks the variant
+    # from the discriminator value but does NOT run variant defaults during
+    # discrimination, so we must hand it a dict that already has `provider`.
+    overrides = {
         "provider": provider,
         "model": model,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "reasoning_effort": reasoning_effort,
     }
-    config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
-    config = ConcreteConfigAdapter.validate_python(config_kwargs)
+    overrides = {k: v for k, v in overrides.items() if v is not None}
+    base = BaseLLMConfig(**overrides)
+    config = ConcreteConfigAdapter.validate_python(base.model_dump())
 
     match config.provider:
         case "anthropic":

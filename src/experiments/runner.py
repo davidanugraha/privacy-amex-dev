@@ -28,6 +28,8 @@ from src.privacy.database.models import ActionRow, ActionRowData
 from src.privacy.protocol.protocol import PrivacyProtocol
 from src.privacy.sandbox import build_sandbox
 from src.privacy.sandbox.base import Sandbox
+from src.provenance import ProvenanceRecorder
+from src.provenance.integrations.privacy_protocol import RecordingSandbox
 
 from .evaluation import evaluate_criteria, score
 from .report import generate_report
@@ -51,6 +53,7 @@ async def kickoff(
     *,
     channel: str = "general",
     from_agent_id: str = "system",
+    recorder: ProvenanceRecorder | None = None,
 ) -> None:
     """Inject a channel message before agents start stepping.
 
@@ -82,6 +85,14 @@ async def kickoff(
             ),
         )
     )
+    if recorder is not None:
+        recorder.record_send(
+            sender_agent_id=from_agent_id,
+            recipient_agent_id=None,
+            channel=channel,
+            content=content,
+            delivered=True,
+        )
 
 
 async def run_agents(
@@ -146,8 +157,10 @@ async def run_scenario(
 ) -> ExperimentResult:
     """Build agents from a scenario spec, kick off, run to completion."""
     db = MemoryDatabase()
-    sandbox = build_sandbox(scenario.sandbox_backend)
-    protocol = PrivacyProtocol(sandbox=sandbox)
+    recorder = ProvenanceRecorder()
+    real_sandbox = build_sandbox(scenario.sandbox_backend)
+    sandbox = RecordingSandbox(real_sandbox, recorder)
+    protocol = PrivacyProtocol(sandbox=sandbox, recorder=recorder)
 
     print(f"\n{'='*60}")
     print(f"Scenario: {scenario.name}")
@@ -167,6 +180,7 @@ async def run_scenario(
         scenario.kickoff_message,
         from_agent_id=scenario.kickoff_from,
         channel=scenario.kickoff_channel,
+        recorder=recorder,
     )
 
     await run_agents(
@@ -181,6 +195,10 @@ async def run_scenario(
 
     output_path = await dump_trajectories(agents, db, scenario, output_root=output_root)
     print(f"\nTrajectories saved to: {output_path}")
+
+    (output_path / "provenance.json").write_text(
+        json.dumps(recorder.graph.dump(), indent=2, default=str)
+    )
 
     await _run_verification(scenario, db, sandbox, output_path)
 

@@ -475,7 +475,6 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
             reasoning={"effort": reasoning_effort},
             input=_messages_to_responses_format(messages),
             tools=_tools_to_responses_format(tools),
-            temperature=temperature,
             max_output_tokens=max_tokens or 4096,
             **kwargs,
         )

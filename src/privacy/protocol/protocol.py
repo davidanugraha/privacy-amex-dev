@@ -17,6 +17,7 @@ from src.privacy.database.base import BaseDatabaseController
 from src.privacy.database.models import ActionRow, ActionRowData
 from src.privacy.protocol.base import BasePrivacyProtocol
 from src.privacy.sandbox import Sandbox, build_sandbox
+from src.provenance import ProvenanceRecorder
 
 from .execute_command import execute_execute_command
 from .messaging import (
@@ -30,13 +31,18 @@ from .messaging import (
 class PrivacyProtocol(BasePrivacyProtocol):
     """Protocol with DM, channel messaging, and sandbox execution.
 
-    No provenance dependency — provenance analysis is done post-hoc by reading
-    the action log in the database.
+    Optionally accepts a `ProvenanceRecorder` — if present, every send and
+    tool use feeds the lineage graph at dispatch time.
     """
 
-    def __init__(self, sandbox: Sandbox | None = None):
+    def __init__(
+        self,
+        sandbox: Sandbox | None = None,
+        recorder: ProvenanceRecorder | None = None,
+    ):
         self._sandbox = sandbox or build_sandbox()
         self._channels: dict[str, set[str]] = {}
+        self._recorder = recorder
 
     @property
     def sandbox(self) -> Sandbox:
@@ -82,10 +88,30 @@ class PrivacyProtocol(BasePrivacyProtocol):
         database: BaseDatabaseController,
     ) -> ActionExecutionResult:
         if isinstance(parsed_action, SendMessage):
-            return await execute_send_message(parsed_action, database)
+            result = await execute_send_message(parsed_action, database)
+            if self._recorder is not None:
+                self._recorder.record_send(
+                    sender_agent_id=parsed_action.from_agent_id,
+                    recipient_agent_id=parsed_action.to_agent_id,
+                    channel=None,
+                    content=_message_text(parsed_action.message),
+                    delivered=not result.is_error,
+                    delivery_error=_error_text(result),
+                )
+            return result
 
         if isinstance(parsed_action, ChannelMessage):
-            return await execute_channel_message(parsed_action, self._channels)
+            result = await execute_channel_message(parsed_action, self._channels)
+            if self._recorder is not None:
+                self._recorder.record_send(
+                    sender_agent_id=parsed_action.from_agent_id,
+                    recipient_agent_id=None,
+                    channel=parsed_action.channel,
+                    content=_message_text(parsed_action.message),
+                    delivered=not result.is_error,
+                    delivery_error=_error_text(result),
+                )
+            return result
 
         if isinstance(parsed_action, CreateChannel):
             return await execute_create_channel(parsed_action, self._channels, agent.id)
@@ -94,8 +120,39 @@ class PrivacyProtocol(BasePrivacyProtocol):
             return await execute_fetch_messages(parsed_action, agent, database, self._channels)
 
         if isinstance(parsed_action, ExecuteCommand):
-            return await execute_execute_command(
+            result = await execute_execute_command(
                 parsed_action, agent, database, sandbox=self._sandbox,
             )
+            if self._recorder is not None:
+                stdout = ""
+                exit_code = 0
+                if isinstance(result.content, dict):
+                    stdout = str(result.content.get("stdout", ""))
+                    exit_code = int(result.content.get("exit_code", 0) or 0)
+                self._recorder.record_tool_use(
+                    agent_id=parsed_action.agent_id,
+                    tool_name="bash",
+                    args={"argv": parsed_action.command, "stdin": parsed_action.stdin},
+                    output=stdout,
+                    exit_code=exit_code,
+                )
+            return result
 
         raise ValueError(f"Unknown action type: {parsed_action.type}")
+
+
+def _message_text(message) -> str:
+    content = getattr(message, "content", None)
+    if isinstance(content, str):
+        return content
+    return message.model_dump_json()
+
+
+def _error_text(result: ActionExecutionResult) -> str | None:
+    if not result.is_error:
+        return None
+    if isinstance(result.content, dict):
+        err = result.content.get("error")
+        if isinstance(err, str):
+            return err
+    return str(result.content)
