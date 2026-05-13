@@ -48,7 +48,7 @@ class LocalSubprocessSandbox:
         self,
         *,
         agent_id: str,
-        command: list[str],
+        command: str,
         stdin: str | None,
         timeout: int,
     ) -> ExecuteCommandResult:
@@ -59,8 +59,10 @@ class LocalSubprocessSandbox:
             )
 
         started = time.monotonic()
+        # Wrap in `bash -c` so pipes / redirects / heredoc / && / || all work.
+        # Matches Claude Code's Bash tool and SWE-bench's per-step exec shape.
         proc = await asyncio.create_subprocess_exec(
-            *command,
+            "bash", "-c", command,
             stdin=asyncio.subprocess.PIPE if stdin is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

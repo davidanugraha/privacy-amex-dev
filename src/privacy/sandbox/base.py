@@ -34,7 +34,7 @@ class Sandbox(Protocol):
         self,
         *,
         agent_id: str,
-        command: list[str],
+        command: str,
         stdin: str | None,
         timeout: int,
     ) -> ExecuteCommandResult:
@@ -42,8 +42,8 @@ class Sandbox(Protocol):
 
         Args:
             agent_id: Must have been set up via `setup()`.
-            command: Argv-style command.
-            stdin: Optional stdin payload.
+            command: Shell command string, executed via `bash -c`.
+            stdin: Optional stdin payload (not LLM-exposed; substrate-internal).
             timeout: Wall-clock timeout; on expiry `timed_out=True`.
         """
         ...

@@ -7,10 +7,16 @@ via `put_archive`. At teardown the container is removed.
 The `docker` SDK is imported lazily inside `__init__` so this module imports
 fine without Docker installed; the error surfaces only when `DockerSandbox`
 is actually constructed.
+
+Wall-clock timeout enforcement: every exec is wrapped with coreutils
+`timeout`, so the container image must ship `/usr/bin/timeout` (true for
+`python:3.11-slim` and any debian/ubuntu-based image; busybox `timeout`
+uses different flags and is not supported here).
 """
 
 import asyncio
 import io
+import logging
 import tarfile
 import tempfile
 import time
@@ -19,6 +25,8 @@ from typing import Any
 
 from src.privacy.core import ExecuteCommandResult
 
+log = logging.getLogger(__name__)
+
 
 class DockerSandbox:
     """Run commands inside a long-lived per-agent Docker container."""
@@ -26,8 +34,8 @@ class DockerSandbox:
     def __init__(
         self,
         *,
-        mem_limit: str = "256m",
-        nano_cpus: int = 1_000_000_000,  # 1 CPU
+        mem_limit: str = "4g",
+        nano_cpus: int | None = None,
         network_disabled: bool = True,
         workdir: str = "/workspace",
     ) -> None:
@@ -67,17 +75,19 @@ class DockerSandbox:
         image: str,
         files: dict[str, str],
     ) -> None:
-        container = self._client.containers.run(
+        run_kwargs: dict[str, Any] = dict(
             image=image,
             command=["sleep", "infinity"],
             working_dir=self._workdir,
             network_disabled=self._network_disabled,
             mem_limit=self._mem_limit,
-            nano_cpus=self._nano_cpus,
             detach=True,
             tty=False,
             remove=False,
         )
+        if self._nano_cpus is not None:
+            run_kwargs["nano_cpus"] = self._nano_cpus
+        container = self._client.containers.run(**run_kwargs)
         self._containers[agent_id] = container
 
         if files:
@@ -95,7 +105,7 @@ class DockerSandbox:
         self,
         *,
         agent_id: str,
-        command: list[str],
+        command: str,
         stdin: str | None,
         timeout: int,
     ) -> ExecuteCommandResult:
@@ -111,10 +121,17 @@ class DockerSandbox:
         self,
         *,
         agent_id: str,
-        command: list[str],
+        command: str,
         stdin: str | None,
         timeout: int,
     ) -> ExecuteCommandResult:
+        if stdin is not None:
+            raise NotImplementedError(
+                "DockerSandbox does not support stdin (silently dropped today). "
+                "Have the caller write input to a file in the workspace and pass "
+                "the filename as argv instead. See REVIEW.md B2."
+            )
+
         container = self._containers.get(agent_id)
         if container is None:
             raise RuntimeError(
@@ -124,35 +141,36 @@ class DockerSandbox:
         api = self._client.api
         started = time.monotonic()
 
+        # Wrap with coreutils `timeout` (wall-clock enforcement) and `bash -c`
+        # (shell features — pipes/redirects/heredoc/&&/||). Exit 124 = timeout
+        # fired (SIGTERM); 137 = SIGKILL after grace.
+        wrapped_cmd = ["timeout", "--kill-after=2", f"{timeout}s", "bash", "-c", command]
+
         exec_id = api.exec_create(
             container.id,
-            cmd=command,
-            stdin=stdin is not None,
+            cmd=wrapped_cmd,
+            stdin=False,
             stdout=True,
             stderr=True,
             tty=False,
             workdir=self._workdir,
         )["Id"]
 
-        # Run with a wall-clock timeout; if exceeded, kill the exec process.
-        deadline = started + timeout
         output_stream = api.exec_start(exec_id, detach=False, stream=False, demux=True)
         # demux=True returns (stdout_bytes, stderr_bytes) tuple when stream=False.
 
-        timed_out = False
         if isinstance(output_stream, tuple):
             stdout_b, stderr_b = output_stream
         else:
             # Fallback for older SDK: single stream, assume stdout.
             stdout_b, stderr_b = output_stream, b""
 
-        if time.monotonic() > deadline:
-            timed_out = True
-
         inspect = api.exec_inspect(exec_id)
         exit_code = inspect.get("ExitCode")
         if exit_code is None:
             exit_code = -1
+
+        timed_out = exit_code == 124
 
         duration_ms = (time.monotonic() - started) * 1000.0
         return ExecuteCommandResult(
@@ -173,11 +191,19 @@ class DockerSandbox:
         try:
             self._snapshot_workspace(agent_id, container)
         except Exception:
-            pass
+            log.exception(
+                "docker sandbox: snapshot failed for %s; FileExists eval "
+                "criteria will return None for this agent's workspace",
+                agent_id,
+            )
         try:
             container.remove(force=True)
         except Exception:
-            pass
+            log.exception(
+                "docker sandbox: container.remove failed for %s; "
+                "container may leak (check `docker ps -a`)",
+                agent_id,
+            )
 
     def _snapshot_workspace(self, agent_id: str, container: Any) -> None:
         snap_dir = self._snapshot_root / f"agent-{agent_id}"
@@ -199,6 +225,21 @@ class DockerSandbox:
                 tar.extract(member, path=snap_dir)
 
     async def read_file(self, agent_id: str, path: str) -> str | None:
+        """Read a file from the agent's workspace.
+
+        Tries the live container first (via `get_archive`) so mid-run reads
+        work. Falls back to the post-teardown snapshot. Matches SWE-bench /
+        HCAST semantics where the evaluator can inspect files while the
+        agent is still running.
+        """
+        return await asyncio.to_thread(self._read_file_blocking, agent_id, path)
+
+    def _read_file_blocking(self, agent_id: str, path: str) -> str | None:
+        container = self._containers.get(agent_id)
+        if container is not None:
+            content = self._read_from_container(container, path)
+            if content is not None:
+                return content
         snap = self._snapshots.get(agent_id)
         if snap is None:
             return None
@@ -208,4 +249,20 @@ class DockerSandbox:
         try:
             return target.read_text()
         except (OSError, UnicodeDecodeError):
+            return None
+
+    def _read_from_container(self, container: Any, path: str) -> str | None:
+        try:
+            stream, _ = container.get_archive(f"{self._workdir}/{path}")
+            buf = io.BytesIO(b"".join(stream))
+            buf.seek(0)
+            with tarfile.open(fileobj=buf, mode="r") as tar:
+                members = tar.getmembers()
+                if not members:
+                    return None
+                f = tar.extractfile(members[0])
+                if f is None:
+                    return None
+                return f.read().decode(errors="replace")
+        except Exception:
             return None
