@@ -11,6 +11,7 @@ from src.privacy.core import (
     CreateChannel,
     ExecuteCommand,
     FetchMessages,
+    ReadMessages,
     SendMessage,
 )
 from src.privacy.database.base import BaseDatabaseController
@@ -24,6 +25,7 @@ from .messaging import (
     execute_channel_message,
     execute_create_channel,
     execute_fetch_messages,
+    execute_read_messages,
     execute_send_message,
 )
 
@@ -56,7 +58,7 @@ class PrivacyProtocol(BasePrivacyProtocol):
         self._channels.setdefault("general", set()).add(agent_id)
 
     def get_actions(self):
-        return [SendMessage, ChannelMessage, CreateChannel, FetchMessages, ExecuteCommand]
+        return [SendMessage, ChannelMessage, CreateChannel, FetchMessages, ReadMessages, ExecuteCommand]
 
     async def initialize(self, database: BaseDatabaseController) -> None:
         """No-op for the in-memory backend."""
@@ -138,6 +140,9 @@ class PrivacyProtocol(BasePrivacyProtocol):
 
         if isinstance(parsed_action, FetchMessages):
             return await execute_fetch_messages(parsed_action, agent, database, self._channels)
+
+        if isinstance(parsed_action, ReadMessages):
+            return await execute_read_messages(parsed_action, agent, database, self._channels)
 
         if isinstance(parsed_action, ExecuteCommand):
             result = await execute_execute_command(

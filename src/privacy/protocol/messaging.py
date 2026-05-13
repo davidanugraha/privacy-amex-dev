@@ -14,6 +14,9 @@ from src.privacy.core import (
     FetchMessages,
     FetchMessagesResponse,
     MessageAdapter,
+    ReadMessageError,
+    ReadMessages,
+    ReadMessagesResponse,
     ReceivedMessage,
     SendMessage,
 )
@@ -130,6 +133,54 @@ async def execute_fetch_messages(
     return ActionExecutionResult(
         content=FetchMessagesResponse(messages=messages).model_dump(mode="json"),
     )
+
+
+# --- ReadMessages (pull bodies by index) --------------------------------------
+
+
+async def execute_read_messages(
+    action: ReadMessages,
+    agent: AgentProfile,
+    database: BaseDatabaseController,
+    channels: dict[str, set[str]],
+) -> ActionExecutionResult:
+    agent_channels = {
+        name for name, members in channels.items() if agent.id in members
+    }
+    requested = list(action.indexes)
+    requested_set = set(requested)
+
+    def predicate(row: ActionRow) -> bool:
+        if row.index is None or row.index not in requested_set:
+            return False
+        return row.data.request.name in (_SEND_MESSAGE, _CHANNEL_MESSAGE)
+
+    rows = await database.actions.find(predicate)
+    by_index: dict[int, ActionRow] = {row.index: row for row in rows if row.index is not None}
+
+    def is_authorized(row: ActionRow) -> bool:
+        name = row.data.request.name
+        params = row.data.request.parameters
+        if name == _SEND_MESSAGE:
+            return params.get("to_agent_id") == agent.id
+        if name == _CHANNEL_MESSAGE:
+            return params.get("channel") in agent_channels
+        return False
+
+    messages: list[ReceivedMessage] = []
+    errors: list[ReadMessageError] = []
+    for idx in requested:
+        row = by_index.get(idx)
+        if row is None:
+            errors.append(ReadMessageError(index=idx, error="not_found"))
+            continue
+        if not is_authorized(row):
+            errors.append(ReadMessageError(index=idx, error="not_authorized"))
+            continue
+        messages.append(_to_received_message(row))
+
+    response = ReadMessagesResponse(messages=messages, errors=errors)
+    return ActionExecutionResult(content=response.model_dump(mode="json"))
 
 
 def _to_received_message(action_row: ActionRow) -> ReceivedMessage:

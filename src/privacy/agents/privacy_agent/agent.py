@@ -76,13 +76,26 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
 
         self._idle_count = 0
 
-        # Format incoming messages as a user turn
+        # Inbox notification: surface only metadata; the agent calls
+        # read_messages(message_ids=[...]) to pull bodies on demand.
         if response.messages:
             lines = []
             for msg in response.messages:
-                source = f"#{msg.channel}" if msg.channel else f"DM from {msg.from_agent_id}"
-                lines.append(f"[{source}]: {msg.message.content}")
-            user_content = "New messages:\n" + "\n".join(lines)
+                if msg.channel is not None:
+                    where = f"#{msg.channel}"
+                    arrow = ""
+                else:
+                    where = "DM"
+                    arrow = "  → you"
+                size = len(msg.message.content)
+                lines.append(
+                    f"  #{msg.index}  {where:<10}  {msg.from_agent_id}{arrow}  {size} chars"
+                )
+            user_content = (
+                f"Inbox — {len(response.messages)} new message(s) since last check:\n"
+                + "\n".join(lines)
+                + "\nUse read_messages(message_ids=[...]) to read bodies."
+            )
         else:
             user_content = "No new messages. Continue with your task if you have pending work, or call mark_done if finished."
 

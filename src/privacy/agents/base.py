@@ -21,6 +21,8 @@ from src.privacy.core import (
     FetchMessages,
     FetchMessagesResponse,
     Message,
+    ReadMessages,
+    ReadMessagesResponse,
     SendMessage,
     TextMessage,
 )
@@ -92,6 +94,26 @@ DEFAULT_TOOLS: list[dict[str, Any]] = [
                 "timeout_seconds": {"type": "integer", "description": "Timeout (default 30)"},
             },
             "required": ["command"],
+        },
+    },
+    {
+        "name": "read_messages",
+        "description": (
+            "Read the full content of one or more messages from your inbox by index. "
+            "Call this after seeing an inbox notification to read bodies — you choose "
+            "which to read. You may re-read any message you have permission to see at "
+            "any time."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "message_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Inbox indexes to read (e.g. [12, 14]).",
+                },
+            },
+            "required": ["message_ids"],
         },
     },
     {
@@ -290,6 +312,13 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
 
         return response.model_copy(update={"messages": new_messages})
 
+    async def read_messages(self, indexes: list[int]) -> ReadMessagesResponse:
+        result = await self.execute_action(ReadMessages(indexes=indexes))
+        if result.is_error:
+            self.logger.warning(f"Failed to read messages: {result.content}")
+            return ReadMessagesResponse(messages=[], errors=[])
+        return ReadMessagesResponse.model_validate(result.content)
+
     # --- Agentic tool-use loop ------------------------------------------------
 
     def _build_tool_definitions(self) -> list[dict[str, Any]]:
@@ -335,6 +364,24 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
                 "stdout": cmd_result.stdout[:2000],
                 "stderr": cmd_result.stderr[:500],
                 "timed_out": cmd_result.timed_out,
+            })
+
+        if name == "read_messages":
+            ids = arguments.get("message_ids") or []
+            response = await self.read_messages([int(i) for i in ids])
+            return json.dumps({
+                "messages": [
+                    {
+                        "index": m.index,
+                        "from": m.from_agent_id,
+                        "channel": m.channel,
+                        "to": m.to_agent_id if m.channel is None else None,
+                        "created_at": m.created_at.isoformat(),
+                        "content": m.message.content,
+                    }
+                    for m in response.messages
+                ],
+                "errors": [e.model_dump() for e in response.errors],
             })
 
         if name == "mark_done":

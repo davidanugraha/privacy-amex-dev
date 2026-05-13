@@ -91,6 +91,33 @@ class FetchMessagesResponse(BaseModel):
     messages: list[ReceivedMessage] = Field(description="List of received messages")
 
 
+class ReadMessages(BaseAction):
+    """Read full content of specific messages by their inbox indexes.
+
+    Authorization mirrors FetchMessages: the requesting agent must be a
+    direct recipient (DM) or a member of the channel the message was
+    posted to. Unknown or unauthorized indexes come back as error
+    entries rather than failing the whole call.
+    """
+
+    type: Literal["read_messages"] = "read_messages"
+    indexes: list[int] = Field(description="Inbox indexes to read")
+
+
+class ReadMessageError(BaseModel):
+    """Per-index failure entry returned by ReadMessages."""
+
+    index: int = Field(description="The requested index that failed")
+    error: Literal["not_found", "not_authorized"] = Field(description="Failure reason")
+
+
+class ReadMessagesResponse(BaseModel):
+    """Response from reading messages by index."""
+
+    messages: list[ReceivedMessage] = Field(default_factory=list)
+    errors: list[ReadMessageError] = Field(default_factory=list)
+
+
 # --- Sandbox execution --------------------------------------------------------
 
 
@@ -118,7 +145,7 @@ class ExecuteCommandResult(BaseModel):
 
 
 Action = Annotated[
-    SendMessage | ChannelMessage | CreateChannel | FetchMessages | ExecuteCommand,
+    SendMessage | ChannelMessage | CreateChannel | FetchMessages | ReadMessages | ExecuteCommand,
     Field(discriminator="type"),
 ]
 

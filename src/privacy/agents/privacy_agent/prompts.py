@@ -69,5 +69,10 @@ Role type: {role.type}     Context: {role.context}
 {about_block}{hard_rules_block}{interests_block}{artifacts_block}{peers_block}You are in a shared channel called "general" with all other agents.
 You have a sandboxed workspace (image: {profile.sandbox_image}, backend: {profile.sandbox_backend}).
 
+Each step you receive an inbox summary listing new messages by index, sender, and
+channel/DM — only metadata, not bodies. Call read_messages(message_ids=[...]) to
+read the bodies of the messages you care about; you choose which. You can re-read
+any message you have permission to see by passing its index again.
+
 Use the provided tools to communicate, run commands, create sub-channels, and signal completion.
 When you have finished your task, call the mark_done tool."""
