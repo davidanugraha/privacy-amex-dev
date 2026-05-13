@@ -2,9 +2,7 @@
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
 from .base import (
@@ -98,8 +96,6 @@ class MemoryAgentController(AgentTableController):
         self._t: _MemoryTable[AgentRow] = _MemoryTable()
 
     async def create(self, item: AgentRow) -> AgentRow:
-        if not item.created_at:
-            item.created_at = datetime.now(UTC)
         return await self._t.create(item)
 
     async def get_by_id(self, item_id: str) -> AgentRow | None:
@@ -127,8 +123,6 @@ class MemoryActionController(ActionTableController):
         self._t: _MemoryTable[ActionRow] = _MemoryTable()
 
     async def create(self, item: ActionRow) -> ActionRow:
-        if not item.created_at:
-            item.created_at = datetime.now(UTC)
         return await self._t.create(item)
 
     async def get_by_id(self, item_id: str) -> ActionRow | None:
@@ -156,8 +150,6 @@ class MemoryLogController(LogTableController):
         self._t: _MemoryTable[LogRow] = _MemoryTable()
 
     async def create(self, item: LogRow) -> LogRow:
-        if not item.created_at:
-            item.created_at = datetime.now(UTC)
         return await self._t.create(item)
 
     async def get_by_id(self, item_id: str) -> LogRow | None:
@@ -201,7 +193,3 @@ class MemoryDatabase(BaseDatabaseController):
         return self._logs
 
 
-@asynccontextmanager
-async def connect_to_memory_database() -> AsyncIterator[BaseDatabaseController]:
-    """Factory that yields a fresh MemoryDatabase as an async context manager."""
-    yield MemoryDatabase()
