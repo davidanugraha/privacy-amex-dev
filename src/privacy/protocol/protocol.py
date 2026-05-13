@@ -157,7 +157,7 @@ class PrivacyProtocol(BasePrivacyProtocol):
                 self._recorder.record_tool_use(
                     agent_id=parsed_action.agent_id,
                     tool_name="bash",
-                    args={"argv": parsed_action.command, "stdin": parsed_action.stdin},
+                    args={"command": parsed_action.command, "stdin": parsed_action.stdin},
                     output=stdout,
                     exit_code=exit_code,
                 )

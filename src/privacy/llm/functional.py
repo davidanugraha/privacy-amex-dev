@@ -102,13 +102,14 @@ async def generate_agentic(
     model: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    reasoning_effort: str | int | None = None,
     system: str | None = None,
     logger: PrivacyLogger | None = None,
     log_metadata: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> AgenticResponse:
     """Generate a response with tool-use support. Used by the agent framework."""
-    client, config_kwargs = _build_client(provider, model, temperature, max_tokens)
+    client, config_kwargs = _build_client(provider, model, temperature, max_tokens, reasoning_effort)
     return await client.generate_agentic(
         messages=messages,
         tools=tools,

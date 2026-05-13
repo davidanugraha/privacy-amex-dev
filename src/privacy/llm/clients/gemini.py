@@ -58,8 +58,14 @@ class GeminiClient(ProviderClient[GeminiConfig]):
 
     @staticmethod
     def _get_cache_key(config: GeminiConfig) -> str:
-        """Generate cache key for a config."""
-        config_json = config.model_dump_json(include={"api_key", "provider"})
+        """Generate cache key for a config.
+
+        Includes `base_url` so a config that switches endpoints doesn't silently
+        share a cached client with the default endpoint. Pydantic's `include`
+        skips fields that don't exist on the model, so this is a no-op until
+        `GeminiConfig` gains a `base_url` field.
+        """
+        config_json = config.model_dump_json(include={"api_key", "provider", "base_url"})
         return sha256(config_json.encode()).hexdigest()
 
     @staticmethod
@@ -287,6 +293,10 @@ class GeminiClient(ProviderClient[GeminiConfig]):
         FunctionDeclarations, tool_use responses become FunctionCall parts,
         and tool results become FunctionResponse parts.
         """
+        # Gemini agentic doesn't yet honor reasoning_effort (would need a
+        # thinking_config on GenerateContentConfig, same as _generate_struct);
+        # strip it so it doesn't reach the SDK as an unknown kwarg.
+        kwargs.pop("reasoning_effort", None)
         contents: list[google.genai.types.Content] = []
         system_prompt: str | None = None
 

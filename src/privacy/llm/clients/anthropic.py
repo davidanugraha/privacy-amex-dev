@@ -56,8 +56,14 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
 
     @staticmethod
     def _get_cache_key(config: AnthropicConfig) -> str:
-        """Generate cache key for a config."""
-        config_json = config.model_dump_json(include={"api_key", "provider"})
+        """Generate cache key for a config.
+
+        Includes `base_url` so a config that switches endpoints (e.g. Bedrock
+        proxy) doesn't silently share a cached client with the default endpoint.
+        Pydantic's `include` skips fields that don't exist on the model, so this
+        is a no-op until `AnthropicConfig` gains a `base_url` field.
+        """
+        config_json = config.model_dump_json(include={"api_key", "provider", "base_url"})
         return sha256(config_json.encode()).hexdigest()
 
     @staticmethod
@@ -92,8 +98,9 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
             args["system"] = system_prompt
 
         if reasoning_effort is not None:
-            if reasoning_effort == "minimal":
-                reasoning_effort = 0
+            # Any string value (including "minimal", "low", "high", etc.) maps
+            # to "no thinking budget" — Anthropic's thinking takes an int budget
+            # in tokens, not an effort label.
             if isinstance(reasoning_effort, str):
                 reasoning_effort = 0
             if reasoning_effort == 0:
@@ -313,6 +320,10 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
         **kwargs: Any,
     ) -> AgenticResponse:
         """Generate with tool-use support via Anthropic API."""
+        # Anthropic agentic doesn't yet honor reasoning_effort (would need
+        # `thinking` config plumbed in here, same as _generate_struct does);
+        # strip it so it doesn't reach the SDK as an unknown kwarg.
+        kwargs.pop("reasoning_effort", None)
         anthropic_messages: list[anthropic.types.MessageParam] = []
         system_prompt: str | None = None
 
