@@ -106,7 +106,6 @@ async def execute_fetch_messages(
     agent_channels = {
         name for name, members in channels.items() if agent.id in members
     }
-    sender_filter = action.from_agent_id
 
     def predicate(row: ActionRow) -> bool:
         name = row.data.request.name
@@ -124,8 +123,6 @@ async def execute_fetch_messages(
         else:
             return False
 
-        if sender_filter is not None and params.get("from_agent_id") != sender_filter:
-            return False
         return True
 
     rows = await database.actions.find(predicate)

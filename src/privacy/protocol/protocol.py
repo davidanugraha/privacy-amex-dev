@@ -11,6 +11,7 @@ from src.privacy.core import (
     CreateChannel,
     ExecuteCommand,
     FetchMessages,
+    MarkDone,
     ReadMessages,
     SendMessage,
 )
@@ -44,6 +45,11 @@ class PrivacyProtocol(BasePrivacyProtocol):
     ):
         self._sandbox = sandbox or build_sandbox()
         self._channels: dict[str, set[str]] = {}
+        # In-memory liveness set. Populated when an agent registers via
+        # `register_agent_to_general`; depopulated when its `MarkDone` is
+        # dispatched. Consulted on `SendMessage` to refuse DMs to peers
+        # that have shut down (avoids silent drops).
+        self._active_agents: set[str] = set()
         self._recorder = recorder
 
     @property
@@ -56,9 +62,10 @@ class PrivacyProtocol(BasePrivacyProtocol):
 
     def register_agent_to_general(self, agent_id: str) -> None:
         self._channels.setdefault("general", set()).add(agent_id)
+        self._active_agents.add(agent_id)
 
     def get_actions(self):
-        return [SendMessage, ChannelMessage, CreateChannel, FetchMessages, ReadMessages, ExecuteCommand]
+        return [SendMessage, ChannelMessage, CreateChannel, FetchMessages, ReadMessages, ExecuteCommand, MarkDone]
 
     async def initialize(self, database: BaseDatabaseController) -> None:
         """No-op for the in-memory backend."""
@@ -91,6 +98,24 @@ class PrivacyProtocol(BasePrivacyProtocol):
     ) -> ActionExecutionResult:
         if isinstance(parsed_action, SendMessage):
             content = _message_text(parsed_action.message)
+            # Liveness check: refuse DMs to peers that have shut down so the
+            # sender's trajectory shows is_error=True with a clear reason
+            # instead of a silent "successful" drop.
+            if parsed_action.to_agent_id not in self._active_agents:
+                if self._recorder is not None:
+                    self._recorder.record_send(
+                        sender_agent_id=parsed_action.from_agent_id,
+                        recipient_agent_id=parsed_action.to_agent_id,
+                        channel=None,
+                        content=content,
+                        delivered=False,
+                        delivery_error="recipient shut down",
+                    )
+                return ActionExecutionResult(
+                    content={"error": f"recipient {parsed_action.to_agent_id!r} has shut down"},
+                    is_error=True,
+                    metadata={"status": "recipient_shut_down"},
+                )
             if self._recorder is not None:
                 blocked = await self._check_policy(
                     sender_agent_id=parsed_action.from_agent_id,
@@ -162,6 +187,21 @@ class PrivacyProtocol(BasePrivacyProtocol):
                     exit_code=exit_code,
                 )
             return result
+
+        if isinstance(parsed_action, MarkDone):
+            # Lifecycle event. No policy hook today — the current policy
+            # surface is send-shaped (sender/recipient/channel/content); a
+            # lifecycle-shaped hook would go here in a future change. The
+            # action row itself is persisted by execute_action() below, so
+            # MarkDone shows up in the trajectory like every other action.
+            # Drop the agent from the liveness set so future DMs to it are
+            # refused rather than silently dropped.
+            self._active_agents.discard(parsed_action.agent_id)
+            return ActionExecutionResult(
+                content={"status": "done", "agent_id": parsed_action.agent_id},
+                is_error=False,
+                metadata={"status": "marked_done"},
+            )
 
         raise ValueError(f"Unknown action type: {parsed_action.type}")
 

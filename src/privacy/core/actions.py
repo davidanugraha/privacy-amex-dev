@@ -69,9 +69,6 @@ class FetchMessages(BaseAction):
     """
 
     type: Literal["fetch_messages"] = "fetch_messages"
-    from_agent_id: str | None = Field(
-        default=None, description="Optional sender filter"
-    )
 
 
 class ReceivedMessage(BaseModel):
@@ -122,12 +119,17 @@ class ReadMessagesResponse(BaseModel):
 
 
 class ExecuteCommand(BaseAction):
-    """Execute a command inside the invoking agent's persistent sandbox workspace."""
+    """Execute a shell command inside the invoking agent's persistent sandbox workspace.
+
+    The substrate wraps the command in `bash -c`, so pipes / redirects /
+    heredoc / `&&` / `||` all work. Matches the surface of Claude Code's
+    Bash tool and SWE-bench's per-step exec.
+    """
 
     type: Literal["execute_command"] = "execute_command"
     agent_id: str = Field(description="ID of the agent running the command")
-    command: list[str] = Field(description="Argv-style command to execute")
-    stdin: str | None = Field(default=None, description="Optional stdin to pipe in")
+    command: str = Field(description="Shell command string (executed via `bash -c`)")
+    stdin: str | None = Field(default=None, description="Optional stdin (not LLM-exposed; substrate-internal)")
     timeout_seconds: int = Field(default=30, description="Hard wall-clock timeout")
 
 
@@ -141,11 +143,27 @@ class ExecuteCommandResult(BaseModel):
     duration_ms: float
 
 
+# --- Lifecycle actions --------------------------------------------------------
+
+
+class MarkDone(BaseAction):
+    """Signal that the agent has completed its task and will shut down.
+
+    Goes through `protocol._dispatch` like every other action so the
+    action row is recorded in the trajectory and any future lifecycle
+    policy hook can gate it. The agent's `_dispatch_tool_call` for
+    `mark_done` calls this and then sets `will_shutdown=True`.
+    """
+
+    type: Literal["mark_done"] = "mark_done"
+    agent_id: str = Field(description="ID of the agent marking itself done")
+
+
 # --- Action union -------------------------------------------------------------
 
 
 Action = Annotated[
-    SendMessage | ChannelMessage | CreateChannel | FetchMessages | ReadMessages | ExecuteCommand,
+    SendMessage | ChannelMessage | CreateChannel | FetchMessages | ReadMessages | ExecuteCommand | MarkDone,
     Field(discriminator="type"),
 ]
 

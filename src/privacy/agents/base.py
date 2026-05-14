@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from src.privacy.core import (
     ActionExecutionRequest,
     ActionExecutionResult,
-    ActionProtocol,
     AgentProfile,
     BaseAction,
     ChannelMessage,
@@ -20,6 +19,7 @@ from src.privacy.core import (
     ExecuteCommandResult,
     FetchMessages,
     FetchMessagesResponse,
+    MarkDone,
     Message,
     ReadMessages,
     ReadMessagesResponse,
@@ -36,6 +36,40 @@ from ..llm.base import AgenticResponse
 from ..llm.config import BaseLLMConfig
 
 TProfile = TypeVar("TProfile", bound=AgentProfile)
+
+
+def _estimate_tokens(messages: list[dict[str, Any]]) -> int:
+    """Rough token count across `_messages`. Uses tiktoken if available
+    (cl100k_base — close enough for Anthropic / Gemini within ~20%), else
+    falls back to a char-count / 4 heuristic. Threshold is fuzzy by nature.
+    """
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        total = 0
+        for m in messages:
+            content = m.get("content", "")
+            if isinstance(content, str):
+                total += len(enc.encode(content))
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        text = block.get("text") or ""
+                        if isinstance(text, str):
+                            total += len(enc.encode(text))
+            for tc in m.get("tool_calls") or []:
+                args = tc.get("arguments", {})
+                serialized = json.dumps(args) if isinstance(args, dict) else str(args)
+                total += len(enc.encode(serialized))
+        return total
+    except ImportError:
+        return sum(len(json.dumps(m, default=str)) for m in messages) // 4
+
+
+class _CompactionSummary(BaseModel):
+    """Structured response for the memory-compaction summarization call."""
+
+    summary: str
 
 # Default tool definitions for privacy agents.
 DEFAULT_TOOLS: list[dict[str, Any]] = [
@@ -81,17 +115,15 @@ DEFAULT_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "execute_command",
-        "description": "Run a command in your sandboxed workspace.",
+        "description": "Run a shell command in your sandboxed workspace (executed via `bash -c`).",
         "parameters": {
             "type": "object",
             "properties": {
                 "command": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Argv-style command (e.g. ['python', 'script.py'])",
+                    "type": "string",
+                    "description": "Shell command string, e.g. \"cat foo.txt | grep PRIVATE\" or \"python -c 'print(42)'\"",
                 },
-                "stdin": {"type": "string", "description": "Optional stdin input"},
-                "timeout_seconds": {"type": "integer", "description": "Timeout (default 30)"},
+                "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (default 30)"},
             },
             "required": ["command"],
         },
@@ -158,12 +190,6 @@ class BaseAgent(Generic[TProfile], ABC):  # noqa: UP046
     def protocol(self) -> BasePrivacyProtocol:
         return self._protocol
 
-    async def get_protocol(self) -> list[ActionProtocol]:
-        return [
-            a if isinstance(a, ActionProtocol) else a.to_protocol()
-            for a in self._protocol.get_actions()
-        ]
-
     async def execute_action(self, action: BaseAction) -> ActionExecutionResult:
         request = ActionExecutionRequest(
             name=action.get_name(), parameters=action.model_dump(mode="json")
@@ -173,12 +199,6 @@ class BaseAgent(Generic[TProfile], ABC):  # noqa: UP046
         )
 
     async def on_started(self):
-        pass
-
-    async def on_will_stop(self):
-        pass
-
-    async def on_stopped(self):
         pass
 
     def shutdown(self):
@@ -224,8 +244,6 @@ class BaseAgent(Generic[TProfile], ABC):  # noqa: UP046
                         break
                     await asyncio.sleep(1)
         finally:
-            await self.on_will_stop()
-            await self.on_stopped()
             await self.logger.flush()
             await self._protocol.sandbox.teardown(self.id)
 
@@ -275,7 +293,7 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
 
     async def execute_command(
         self,
-        command: list[str],
+        command: str,
         *,
         stdin: str | None = None,
         timeout_seconds: int = 30,
@@ -319,6 +337,92 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
             return ReadMessagesResponse(messages=[], errors=[])
         return ReadMessagesResponse.model_validate(result.content)
 
+    # --- Memory compaction ----------------------------------------------------
+
+    async def _compact_history(
+        self,
+        *,
+        compact_at_tokens: int,
+        keep_recent: int,
+    ) -> None:
+        """Summarize older turns when history exceeds the threshold.
+
+        Pins: the first user turn (kickoff / task assignment) and the last
+        `keep_recent` user-initiated exchanges. Replaces the middle with a
+        single LLM-generated summary turn (role=user, marker prefix).
+
+        Raises if the summary call fails — summarization is agent agency;
+        failure propagates to `BaseAgent.run`'s retry-with-backoff path.
+        """
+        if compact_at_tokens <= 0 or not self._messages:
+            return
+        if _estimate_tokens(self._messages) <= compact_at_tokens:
+            return
+
+        user_indices = [
+            i for i, m in enumerate(self._messages) if m.get("role") == "user"
+        ]
+        if len(user_indices) <= keep_recent + 1:
+            # Need at least one to pin + keep_recent + something in between
+            return
+
+        first_user_idx = user_indices[0]
+        keep_from = user_indices[-keep_recent]
+        older = self._messages[first_user_idx + 1 : keep_from]
+        if not older:
+            return
+
+        # Render the middle slice as a readable transcript for the summary LLM.
+        rendered_lines: list[str] = []
+        for m in older:
+            role = m.get("role", "?")
+            content = m.get("content", "")
+            if isinstance(content, list):
+                text_parts = [
+                    b.get("text", "") for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                content = "\n".join(text_parts)
+            rendered_lines.append(f"[{role}] {content}")
+            for tc in m.get("tool_calls") or []:
+                args_str = json.dumps(tc.get("arguments", {}), default=str)
+                rendered_lines.append(
+                    f"[{role}:tool_call:{tc.get('name', '?')}] {args_str}"
+                )
+        rendered = "\n".join(rendered_lines)
+
+        summary_prompt = (
+            "Summarize the conversation history below as compactly as possible. "
+            "Preserve: commitments you've made, sensitive information you've "
+            "learned and constraints around it, pending tasks and their status, "
+            "and the identities/roles of who said what. Be specific, not abstract. "
+            "Do not include preamble or apology — just the summary itself.\n\n"
+            f"HISTORY:\n{rendered}"
+        )
+
+        from src.privacy.llm import generate_struct  # lazy import to avoid cycles
+        llm_kwargs = {
+            k: v for k, v in self.llm_config.model_dump().items()
+            if k in ("provider", "model", "temperature", "max_tokens") and v is not None
+        }
+        verdict, _ = await generate_struct(
+            summary_prompt,
+            response_format=_CompactionSummary,
+            logger=self.logger,
+            log_metadata={"agent_id": self.id, "purpose": "compaction_summary"},
+            **llm_kwargs,
+        )
+
+        summary_turn = {
+            "role": "user",
+            "content": f"[Memory summary of earlier conversation]\n{verdict.summary}",
+        }
+        self._messages = (
+            self._messages[: first_user_idx + 1]
+            + [summary_turn]
+            + self._messages[keep_from:]
+        )
+
     # --- Agentic tool-use loop ------------------------------------------------
 
     def _build_tool_definitions(self) -> list[dict[str, Any]]:
@@ -356,7 +460,6 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
         if name == "execute_command":
             cmd_result = await self.execute_command(
                 arguments["command"],
-                stdin=arguments.get("stdin"),
                 timeout_seconds=arguments.get("timeout_seconds", 30),
             )
             return json.dumps({
@@ -385,16 +488,10 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
             })
 
         if name == "mark_done":
-            await self._database.actions.create(ActionRow(
-                id="",
-                created_at=datetime.now(UTC),
-                data=ActionRowData(
-                    agent_id=self.id,
-                    request=ActionExecutionRequest(name="MarkDone", parameters={}),
-                    result=ActionExecutionResult(content={}, is_error=False, metadata={}),
-                ),
-            ))
+            result = await self.execute_action(MarkDone(agent_id=self.id))
             self.shutdown()
+            if result.is_error:
+                return json.dumps({"error": result.content})
             return json.dumps({"status": "done"})
 
         return json.dumps({"error": f"unknown tool: {name}"})
@@ -405,12 +502,23 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
         *,
         system: str | None = None,
         max_tool_rounds: int = 10,
+        compact_at_tokens: int | None = None,
+        compact_keep_recent: int = 3,
     ) -> None:
         """Run an agentic loop: LLM → tool calls → results → LLM → ... → done.
 
-        Appends to self._messages in provider-agnostic format.
+        Appends to self._messages in provider-agnostic format. If
+        `compact_at_tokens` is set, summarizes older history once at the
+        top of the step (before the first LLM call) when the threshold is
+        exceeded. Compaction is not run mid-tool-round to avoid cutting a
+        tool_use from its tool_result (Anthropic pairing requirement).
         """
         self._messages.append({"role": "user", "content": user_content})
+        if compact_at_tokens is not None:
+            await self._compact_history(
+                compact_at_tokens=compact_at_tokens,
+                keep_recent=compact_keep_recent,
+            )
         tools = self._build_tool_definitions()
         llm_kwargs = {
             k: v for k, v in self.llm_config.model_dump().items()

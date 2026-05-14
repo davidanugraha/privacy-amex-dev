@@ -28,6 +28,8 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
         max_steps: int | None = None,
         max_idle_steps: int | None = None,
         max_tool_rounds: int = 10,
+        compact_at_tokens: int | None = None,
+        compact_keep_recent: int = 3,
         **kwargs,
     ):
         super().__init__(profile, protocol, database, **kwargs)
@@ -36,6 +38,8 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
         self._max_steps = max_steps
         self._max_idle_steps = max_idle_steps
         self._max_tool_rounds = max_tool_rounds
+        self._compact_at_tokens = compact_at_tokens
+        self._compact_keep_recent = compact_keep_recent
         self._step_count = 0
         self._idle_count = 0
 
@@ -100,4 +104,10 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
             user_content = "No new messages. Continue with your task if you have pending work, or call mark_done if finished."
 
         system_prompt = build_system_prompt(self.profile, self._peer_ids)
-        await self._run_agentic_loop(user_content, system=system_prompt, max_tool_rounds=self._max_tool_rounds)
+        await self._run_agentic_loop(
+            user_content,
+            system=system_prompt,
+            max_tool_rounds=self._max_tool_rounds,
+            compact_at_tokens=self._compact_at_tokens,
+            compact_keep_recent=self._compact_keep_recent,
+        )
