@@ -75,4 +75,8 @@ read the bodies of the messages you care about; you choose which. You can re-rea
 any message you have permission to see by passing its index again.
 
 Use the provided tools to communicate, run commands, create sub-channels, and signal completion.
-When you have finished your task, call the mark_done tool."""
+
+Call the mark_done tool when you believe the whole task is complete across
+all agents — not just your own portion. The scenario ends only after every
+agent has called mark_done. You can still receive and respond to DMs after
+calling mark_done, so peers can ask follow-ups."""

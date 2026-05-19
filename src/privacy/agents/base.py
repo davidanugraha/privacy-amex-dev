@@ -150,7 +150,12 @@ DEFAULT_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "mark_done",
-        "description": "Signal that you have completed your task.",
+        "description": (
+            "Mark the task as done. Call this only when you believe the "
+            "whole task is complete — your work AND your peers' work — "
+            "not just your own part. The task ends when every agent has "
+            "marked it done."
+        ),
         "parameters": {
             "type": "object",
             "properties": {},
@@ -243,6 +248,11 @@ class BaseAgent(Generic[TProfile], ABC):  # noqa: UP046
                     if self.will_shutdown:
                         break
                     await asyncio.sleep(1)
+                # If every active agent has marked the task done, this
+                # agent stops too. Bounded by `max_wall_seconds` at the
+                # runner level.
+                if hasattr(self._protocol, "all_marked_done") and self._protocol.all_marked_done():
+                    break
         finally:
             await self.logger.flush()
             await self._protocol.sandbox.teardown(self.id)
@@ -391,14 +401,12 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
                 )
         rendered = "\n".join(rendered_lines)
 
-        summary_prompt = (
-            "Summarize the conversation history below as compactly as possible. "
-            "Preserve: commitments you've made, sensitive information you've "
-            "learned and constraints around it, pending tasks and their status, "
-            "and the identities/roles of who said what. Be specific, not abstract. "
-            "Do not include preamble or apology — just the summary itself.\n\n"
-            f"HISTORY:\n{rendered}"
-        )
+        summary_prompt = f"""\
+Summarize the conversation history below as compactly as possible. Preserve: commitments you've made, sensitive information you've learned and constraints around it, pending tasks and their status, and the identities/roles of who said what. Be specific, not abstract. Do not include preamble or apology — just the summary itself.
+
+### HISTORY
+{rendered}
+"""
 
         from src.privacy.llm import generate_struct  # lazy import to avoid cycles
         llm_kwargs = {
@@ -489,10 +497,9 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
 
         if name == "mark_done":
             result = await self.execute_action(MarkDone(agent_id=self.id))
-            self.shutdown()
             if result.is_error:
                 return json.dumps({"error": result.content})
-            return json.dumps({"status": "done"})
+            return json.dumps({"status": "marked_done"})
 
         return json.dumps({"error": f"unknown tool: {name}"})
 
@@ -504,7 +511,7 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
         max_tool_rounds: int = 10,
         compact_at_tokens: int | None = None,
         compact_keep_recent: int = 3,
-    ) -> None:
+    ) -> bool:
         """Run an agentic loop: LLM → tool calls → results → LLM → ... → done.
 
         Appends to self._messages in provider-agnostic format. If
@@ -512,6 +519,11 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
         top of the step (before the first LLM call) when the threshold is
         exceeded. Compaction is not run mid-tool-round to avoid cutting a
         tool_use from its tool_result (Anthropic pairing requirement).
+
+        Returns True iff the loop exited because `max_tool_rounds` was
+        exhausted (agent was cut off mid-stream and likely has more work).
+        Returns False on clean exit (LLM responded with no tool calls) or
+        shutdown.
         """
         self._messages.append({"role": "user", "content": user_content})
         if compact_at_tokens is not None:
@@ -527,7 +539,7 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
 
         for _ in range(max_tool_rounds):
             if self.will_shutdown:
-                break
+                return False
 
             response: AgenticResponse = await generate_agentic(
                 messages=self._messages,
@@ -542,7 +554,7 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
             self._messages.append(response.raw_assistant_message)
 
             if not response.tool_calls:
-                break
+                return False
 
             for tc in response.tool_calls:
                 try:
@@ -557,4 +569,5 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
                 })
 
                 if self.will_shutdown:
-                    return
+                    return False
+        return True

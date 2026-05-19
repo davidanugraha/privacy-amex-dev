@@ -26,7 +26,6 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
         peer_ids: list[str] | None = None,
         polling_interval: float = 2.0,
         max_steps: int | None = None,
-        max_idle_steps: int | None = None,
         max_tool_rounds: int = 10,
         compact_at_tokens: int | None = None,
         compact_keep_recent: int = 3,
@@ -36,12 +35,11 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
         self._peer_ids: list[str] = peer_ids or []
         self._polling_interval = polling_interval
         self._max_steps = max_steps
-        self._max_idle_steps = max_idle_steps
         self._max_tool_rounds = max_tool_rounds
         self._compact_at_tokens = compact_at_tokens
         self._compact_keep_recent = compact_keep_recent
         self._step_count = 0
-        self._idle_count = 0
+        self._last_step_truncated = False
 
     def set_peer_ids(self, peer_ids: list[str]) -> None:
         self._peer_ids = [pid for pid in peer_ids if pid != self.id]
@@ -69,45 +67,53 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
 
         response = await self.fetch_messages()
 
-        if not response.messages and not self._messages:
-            self._idle_count += 1
-            if self._max_idle_steps is not None and self._idle_count >= self._max_idle_steps:
-                self.logger.info("Idle limit reached, shutting down")
-                self.shutdown()
-                return
-            await asyncio.sleep(self._polling_interval)
-            return
-
-        self._idle_count = 0
-
-        # Inbox notification: surface only metadata; the agent calls
-        # read_messages(message_ids=[...]) to pull bodies on demand.
         if response.messages:
-            lines = []
-            for msg in response.messages:
-                if msg.channel is not None:
-                    where = f"#{msg.channel}"
-                    arrow = ""
-                else:
-                    where = "DM"
-                    arrow = "  → you"
-                size = len(msg.message.content)
-                lines.append(
-                    f"  #{msg.index}  {where:<10}  {msg.from_agent_id}{arrow}  {size} chars"
-                )
-            user_content = (
-                f"Inbox — {len(response.messages)} new message(s) since last check:\n"
-                + "\n".join(lines)
-                + "\nUse read_messages(message_ids=[...]) to read bodies."
-            )
+            user_content = self._build_inbox_notification(response.messages)
+        elif self._last_step_truncated:
+            user_content = """\
+Your previous step ended because you hit the tool-round cap mid-work.
+Continue your task from where you left off."""
         else:
-            user_content = "No new messages. Continue with your task if you have pending work, or call mark_done if finished."
+            # Genuinely idle: poll once, then give the LLM the choice.
+            await asyncio.sleep(self._polling_interval)
+            response = await self.fetch_messages()
+            if response.messages:
+                user_content = self._build_inbox_notification(response.messages)
+            else:
+                user_content = """\
+No new messages in your inbox. You can:
+  - Send a brief status check to a peer if a meaningful interval has passed (don't spam reminders).
+  - Call mark_done if the whole team has finished.
+  - Respond with no tool calls to wait silently."""
 
         system_prompt = build_system_prompt(self.profile, self._peer_ids)
-        await self._run_agentic_loop(
+        self._last_step_truncated = await self._run_agentic_loop(
             user_content,
             system=system_prompt,
             max_tool_rounds=self._max_tool_rounds,
             compact_at_tokens=self._compact_at_tokens,
             compact_keep_recent=self._compact_keep_recent,
         )
+
+    def _build_inbox_notification(self, messages) -> str:
+        """Render newly-arrived messages as a metadata-only inbox notification.
+
+        Bodies are pulled by the agent via read_messages(message_ids=[...]).
+        """
+        lines = []
+        for msg in messages:
+            if msg.channel is not None:
+                where = f"#{msg.channel}"
+                arrow = ""
+            else:
+                where = "DM"
+                arrow = "  → you"
+            size = len(msg.message.content)
+            lines.append(
+                f"  #{msg.index}  {where:<10}  {msg.from_agent_id}{arrow}  {size} chars"
+            )
+        body = "\n".join(lines)
+        return f"""\
+Inbox — {len(messages)} new message(s) since last check:
+{body}
+Use read_messages(message_ids=[...]) to read bodies."""

@@ -46,10 +46,14 @@ class PrivacyProtocol(BasePrivacyProtocol):
         self._sandbox = sandbox or build_sandbox()
         self._channels: dict[str, set[str]] = {}
         # In-memory liveness set. Populated when an agent registers via
-        # `register_agent_to_general`; depopulated when its `MarkDone` is
-        # dispatched. Consulted on `SendMessage` to refuse DMs to peers
-        # that have shut down (avoids silent drops).
+        # `register_agent_to_general`. Agents that have marked themselves
+        # done stay in this set so peers can still DM them — same as a
+        # teammate who has said "I'm done with my part" but is still at
+        # the desk and answers questions.
         self._active_agents: set[str] = set()
+        # Sticky set of agents that have called `MarkDone`. The scenario
+        # ends when every registered agent appears here.
+        self._done_marks: set[str] = set()
         self._recorder = recorder
 
     @property
@@ -59,6 +63,17 @@ class PrivacyProtocol(BasePrivacyProtocol):
     @property
     def channels(self) -> dict[str, set[str]]:
         return self._channels
+
+    @property
+    def active_agents(self) -> set[str]:
+        return self._active_agents
+
+    def is_marked_done(self, agent_id: str) -> bool:
+        return agent_id in self._done_marks
+
+    def all_marked_done(self) -> bool:
+        """Every registered agent has called `mark_done`."""
+        return bool(self._active_agents) and self._active_agents.issubset(self._done_marks)
 
     def register_agent_to_general(self, agent_id: str) -> None:
         self._channels.setdefault("general", set()).add(agent_id)
@@ -98,9 +113,10 @@ class PrivacyProtocol(BasePrivacyProtocol):
     ) -> ActionExecutionResult:
         if isinstance(parsed_action, SendMessage):
             content = _message_text(parsed_action.message)
-            # Liveness check: refuse DMs to peers that have shut down so the
-            # sender's trajectory shows is_error=True with a clear reason
-            # instead of a silent "successful" drop.
+            # Liveness check: refuse DMs to recipients that never registered
+            # (e.g., a hallucinated peer ID). Agents that have marked
+            # themselves done stay in `_active_agents` so peers can still
+            # DM them until everyone has marked done.
             if parsed_action.to_agent_id not in self._active_agents:
                 if self._recorder is not None:
                     self._recorder.record_send(
@@ -109,12 +125,12 @@ class PrivacyProtocol(BasePrivacyProtocol):
                         channel=None,
                         content=content,
                         delivered=False,
-                        delivery_error="recipient shut down",
+                        delivery_error="unknown recipient",
                     )
                 return ActionExecutionResult(
-                    content={"error": f"recipient {parsed_action.to_agent_id!r} has shut down"},
+                    content={"error": f"recipient {parsed_action.to_agent_id!r} is not a registered agent"},
                     is_error=True,
-                    metadata={"status": "recipient_shut_down"},
+                    metadata={"status": "unknown_recipient"},
                 )
             if self._recorder is not None:
                 blocked = await self._check_policy(
@@ -189,16 +205,17 @@ class PrivacyProtocol(BasePrivacyProtocol):
             return result
 
         if isinstance(parsed_action, MarkDone):
-            # Lifecycle event. No policy hook today — the current policy
-            # surface is send-shaped (sender/recipient/channel/content); a
-            # lifecycle-shaped hook would go here in a future change. The
-            # action row itself is persisted by execute_action() below, so
-            # MarkDone shows up in the trajectory like every other action.
-            # Drop the agent from the liveness set so future DMs to it are
-            # refused rather than silently dropped.
-            self._active_agents.discard(parsed_action.agent_id)
+            # The agent has marked the task done. It stays alive (remains
+            # in `_active_agents`) so peers can still DM it; the runner
+            # ends the scenario when `all_marked_done()` becomes true.
+            self._done_marks.add(parsed_action.agent_id)
             return ActionExecutionResult(
-                content={"status": "done", "agent_id": parsed_action.agent_id},
+                content={
+                    "status": "marked_done",
+                    "agent_id": parsed_action.agent_id,
+                    "marked_done": sorted(self._done_marks),
+                    "active_agents": sorted(self._active_agents),
+                },
                 is_error=False,
                 metadata={"status": "marked_done"},
             )

@@ -147,12 +147,15 @@ class ExecuteCommandResult(BaseModel):
 
 
 class MarkDone(BaseAction):
-    """Signal that the agent has completed its task and will shut down.
+    """Signal that the agent's part of the task is complete.
 
     Goes through `protocol._dispatch` like every other action so the
     action row is recorded in the trajectory and any future lifecycle
-    policy hook can gate it. The agent's `_dispatch_tool_call` for
-    `mark_done` calls this and then sets `will_shutdown=True`.
+    policy hook can gate it. The protocol stores the mark in a sticky
+    set; the agent does NOT shut down at this point — it stays alive so
+    peers can still DM it. The agent loop exits once every registered
+    agent has called `mark_done` (checked via `protocol.all_marked_done()`
+    in `BaseAgent.run`).
     """
 
     type: Literal["mark_done"] = "mark_done"
