@@ -32,7 +32,8 @@ from src.privacy.sandbox.base import Sandbox
 from src.provenance import Policy, ProvenanceRecorder
 from src.provenance.integrations.privacy_protocol import RecordingSandbox
 
-from .evaluation import evaluate_criteria, score
+from .completion import evaluate_completion
+from .violations import evaluate_violations
 from .report import generate_report
 from .scenario import Scenario, ScenarioAgent, load_scenario
 
@@ -108,17 +109,19 @@ async def kickoff(
 
 async def run_agents(
     *agents: BaseAgent[Any],
-    terminator_agent_id: str | None = None,
     max_wall_seconds: int | None = None,
 ) -> None:
-    """Run agents concurrently until termination condition is met.
+    """Run agents concurrently until they've all completed or a cap fires.
 
     Termination:
-      - If `terminator_agent_id` is set, the scenario ends as soon as that
-        agent's `run()` task exits; remaining agents get `.shutdown()`.
-      - Otherwise, the scenario ends when all agents' `run()` tasks exit.
+      - The scenario ends when every agent's `run()` task exits (each agent
+        decides for itself via `mark_done` / idle / step caps).
       - If `max_wall_seconds` is set, it's a hard wall-clock cap — on
         expiry, all still-running agents get `.shutdown()`.
+
+    No single-agent "terminator" — eval criteria are the sole judge of
+    whether the team accomplished the goal. See ../plans for the design
+    discussion.
     """
     if not agents:
         return
@@ -129,27 +132,13 @@ async def run_agents(
 
     reason = "all agents completed"
     try:
-        if terminator_agent_id is not None:
-            term_task = task_by_agent.get(terminator_agent_id)
-            if term_task is None:
-                raise ValueError(
-                    f"terminator_agent {terminator_agent_id!r} not found among agents"
-                )
-            done, _ = await asyncio.wait(
-                [term_task], timeout=max_wall_seconds,
-            )
-            if not done:
-                reason = f"wall-clock timeout ({max_wall_seconds}s)"
-            else:
-                reason = f"terminator agent {terminator_agent_id!r} exited"
-        else:
-            done, _ = await asyncio.wait(
-                tasks,
-                return_when=asyncio.ALL_COMPLETED,
-                timeout=max_wall_seconds,
-            )
-            if len(done) < len(tasks):
-                reason = f"wall-clock timeout ({max_wall_seconds}s)"
+        done, _ = await asyncio.wait(
+            tasks,
+            return_when=asyncio.ALL_COMPLETED,
+            timeout=max_wall_seconds,
+        )
+        if len(done) < len(tasks):
+            reason = f"wall-clock timeout ({max_wall_seconds}s)"
     finally:
         for a in agents:
             if not task_by_agent[a.id].done():
@@ -172,7 +161,12 @@ async def run_scenario(
         store_content=scenario.provenance_store_content,
         policy=_build_policy(scenario.provenance_policy),
     )
-    real_sandbox = build_sandbox(scenario.sandbox_backend)
+    real_sandbox = build_sandbox(
+        scenario.sandbox_backend,
+        docker_mem_limit=scenario.docker_mem_limit,
+        docker_cpus=scenario.docker_cpus,
+        docker_network_disabled=scenario.docker_network_disabled,
+    )
     sandbox = RecordingSandbox(real_sandbox, recorder)
     protocol = PrivacyProtocol(sandbox=sandbox, recorder=recorder)
 
@@ -200,7 +194,6 @@ async def run_scenario(
 
     await run_agents(
         *agents,
-        terminator_agent_id=scenario.terminator_agent,
         max_wall_seconds=scenario.max_wall_seconds,
     )
 
@@ -215,7 +208,17 @@ async def run_scenario(
         json.dumps(recorder.graph.dump(), indent=2, default=str)
     )
 
-    await _run_verification(scenario, db, sandbox, output_path)
+    # Snapshot channel membership for the violation evaluator. Channels
+    # are fixed at scenario start in the current substrate; a single
+    # snapshot suffices.
+    (output_path / "channels.json").write_text(
+        json.dumps(
+            {ch: sorted(members) for ch, members in protocol.channels.items()},
+            indent=2,
+        )
+    )
+
+    await _run_verification(scenario, db, sandbox, protocol, output_path)
 
     report_path = generate_report(output_path)
     print(f"Report: {report_path}")
@@ -227,26 +230,81 @@ async def _run_verification(
     scenario: Scenario,
     db: BaseDatabaseController,
     sandbox: Sandbox,
+    protocol: PrivacyProtocol,
     output_path: Path,
 ) -> None:
-    if not scenario.success_criteria:
-        return
+    """Two-section eval: task completion + ground-truth violations.
+
+    Completion: AND across deterministic checks + one optional LLM
+    `goal_achieved`. Violations: recipient-indexed iteration over the
+    action log, two detection paths (regex + LLM-judge) populating the
+    same ViolationInstance schema. No weights; no compositional
+    classification.
+    """
     actions = await db.actions.get_all()
-    results = await evaluate_criteria(scenario.success_criteria, actions, sandbox)
-    total_score = score(results)
+    channels = {ch: set(members) for ch, members in protocol.channels.items()}
+    all_agent_ids = [sa.id for sa in scenario.agents]
+
+    completion = await evaluate_completion(scenario.scenario_dir, sandbox)
+    if not completion.results:
+        completion = None
+
+    violations = None
+    if scenario.sensitive_claims:
+        violations = await evaluate_violations(
+            scenario.sensitive_claims,
+            actions,
+            channels,
+            all_agent_ids,
+            model=scenario.eval_model,
+            enable_llm_judge=scenario.enable_llm_violation_judge,
+        )
+
+    if completion is None and violations is None:
+        return
 
     print(f"\n{'='*60}")
     print("Verification")
     print(f"{'='*60}")
-    for r in results:
-        mark = "PASS" if r.passed else "FAIL"
-        print(f"  [{mark}] ({r.kind}) {r.description} — {r.detail}")
-    print(f"\nWeighted score: {total_score:.3f}")
 
-    verification = {
-        "score": total_score,
-        "results": [r.to_dict() for r in results],
-    }
+    if completion is not None:
+        print("\nCompletion checks:")
+        for r in completion.results:
+            mark = "PASS" if r.passed else "FAIL"
+            print(f"  [{mark}] {r.description} — {r.detail}")
+        print(f"  → all_passed: {completion.all_passed}")
+
+    if violations is not None:
+        agg = violations.aggregates
+        print("\nPrivacy violations:")
+        print(f"  edges:        {agg.total_violations} / {agg.max_possible_violations}"
+              f"   direct/relay/illicit = "
+              f"{agg.direct_violations}/{agg.relay_violations}/{agg.illicit_relay_violations}")
+        print(f"  leak_rate:    {agg.leak_rate:.3f}"
+              f"   substrate={agg.substrate_leak_rate:.3f}"
+              f"   semantic={agg.semantic_leak_rate:.3f}")
+        print(f"  disclosures:  {agg.total_disclosures} / {agg.possible_disclosures}"
+              f"   direct/relay/illicit = "
+              f"{agg.direct_disclosures}/{agg.relay_disclosures}/{agg.illicit_relay_disclosures}"
+              f"   rate={agg.disclosure_rate:.3f}")
+        if agg.judge_error_count:
+            print(f"  judge_errors: {agg.judge_error_count} "
+                  f"(claim, recipient) pair(s) errored — leak rate may be under-counted")
+        for inst in violations.instances[:20]:
+            print(
+                f"    [{inst.detection}] claim={inst.claim_id} "
+                f"{inst.sender} -> {inst.recipient} via {inst.via}"
+                + (f"(#{inst.channel})" if inst.channel else "")
+                + f": {inst.evidence[:80]}"
+            )
+        if len(violations.instances) > 20:
+            print(f"    … {len(violations.instances) - 20} more")
+
+    verification: dict[str, Any] = {}
+    if completion is not None:
+        verification["completion"] = completion.to_dict()
+    if violations is not None:
+        verification["violations"] = violations.to_dict()
     (output_path / "verification.json").write_text(json.dumps(verification, indent=2))
 
 
@@ -278,8 +336,9 @@ def _build_agent(
         database=db,
         peer_ids=[aid for aid in all_ids if aid != sa.id],
         max_steps=scenario.max_steps,
-        max_idle_steps=scenario.max_idle_steps,
         max_tool_rounds=scenario.max_tool_rounds,
+        compact_at_tokens=scenario.compact_at_tokens,
+        compact_keep_recent=scenario.compact_keep_recent,
     )
     agent.sandbox_files = lambda: sa.sandbox_files  # type: ignore[assignment]
     return agent
@@ -309,8 +368,9 @@ async def _print_action_summary(db: BaseDatabaseController) -> None:
             print(f"  [#{channel}] {agent_id}: {content}")
             channel_count += 1
         elif name == "ExecuteCommand":
-            cmd = params.get("command", [])
-            print(f"  [CMD] {agent_id}: {' '.join(cmd)[:80]}")
+            cmd = params.get("command", "")
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            print(f"  [CMD] {agent_id}: {cmd_str[:80]}")
             command_count += 1
         elif name == "MarkDone":
             print(f"  [DONE] {agent_id}")
@@ -375,6 +435,15 @@ async def dump_trajectories(
             }
             f.write(json.dumps(entry, default=str) + "\n")
 
+    # Full log table — structured records from PrivacyLogger.
+    # Intended for post-hoc analysis; not agent-readable (no protocol surface
+    # exposes db.logs, so agents can't see other agents' traces).
+    logs_file = output_dir / "logs.jsonl"
+    log_rows = await database.logs.get_all()
+    with open(logs_file, "w") as f:
+        for row in log_rows:
+            f.write(json.dumps(row.model_dump(mode="json"), default=str) + "\n")
+
     # Human-readable summary
     summary_file = output_dir / "summary.txt"
     with open(summary_file, "w") as f:
@@ -383,6 +452,7 @@ async def dump_trajectories(
         f.write(f"Agents: {[a.id for a in scenario.agents]}\n")
         f.write(f"Sandbox backend: {scenario.sandbox_backend}\n")
         f.write(f"Timestamp: {timestamp}\n")
+        f.write(f"Log entries: {len(log_rows)}\n")
         f.write(f"\n{'='*60}\nAction Log\n{'='*60}\n\n")
 
         dm_count = 0
@@ -405,13 +475,14 @@ async def dump_trajectories(
                 f.write(f"[#{channel}] {agent_id}: {content}\n")
                 channel_count += 1
             elif name == "ExecuteCommand":
-                cmd = params.get("command", [])
+                cmd = params.get("command", "")
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
                 stdout = row.data.result.content
                 if isinstance(stdout, dict):
                     stdout = stdout.get("stdout", "")[:80]
                 else:
                     stdout = str(stdout)[:80]
-                f.write(f"[CMD] {agent_id}: {' '.join(cmd)[:80]}\n")
+                f.write(f"[CMD] {agent_id}: {cmd_str[:80]}\n")
                 f.write(f"      stdout: {stdout}\n")
                 command_count += 1
             elif name == "FetchMessages":
@@ -444,64 +515,135 @@ async def run_k_times(scenario: Scenario, k: int) -> Path:
 # --- k-run aggregation -------------------------------------------------------
 
 def aggregate(run_dirs: list[Path]) -> dict[str, Any]:
-    """Aggregate verification results across k runs.
+    """Aggregate the split verification results across k runs.
 
-    Returns:
-        dict with per-criterion pass^k, leakage_rate (for no_leak criteria),
-        and overall score stats.
+    Two parallel streams:
+      * `completion`: per-check pass rate + overall all_passed rate.
+      * `violations`: per-run edge- and cell-level leak rates; per-claim/
+        recipient/sender edge frequencies summed across runs; judge errors.
     """
-    per_criterion: dict[str, dict[str, Any]] = {}
-    scores: list[float] = []
+    per_completion_check: dict[str, dict[str, Any]] = {}
+    completion_all_passed: list[bool] = []
+
+    # Edge-level rates.
+    leak_rates: list[float] = []
+    substrate_leak_rates: list[float] = []
+    semantic_leak_rates: list[float] = []
+    # Cell-level (per-disclosure) rate.
+    disclosure_rates: list[float] = []
+    # Cross-run counts (summed).
+    direct_violations = relay_violations = illicit_relay_violations = 0
+    direct_disclosures = relay_disclosures = illicit_relay_disclosures = 0
+    total_disclosures_sum = possible_disclosures_sum = 0
+    judge_error_count = 0
+    per_claim_edges: dict[str, int] = {}
+    per_recipient_edges: dict[str, int] = {}
+    per_sender_edges: dict[str, int] = {}
+
+    runs_with_completion = 0
+    runs_with_violations = 0
 
     for run_dir in run_dirs:
         vpath = run_dir / "verification.json"
         if not vpath.exists():
             continue
         data = json.loads(vpath.read_text())
-        scores.append(float(data.get("score", 0.0)))
-        for r in data.get("results", []):
-            key = f"{r['kind']}::{r.get('description', '')}"
-            slot = per_criterion.setdefault(key, {
-                "kind": r["kind"],
-                "description": r.get("description", ""),
-                "runs": 0,
-                "passes": 0,
-                "fails": 0,
-            })
-            slot["runs"] += 1
-            if r["passed"]:
-                slot["passes"] += 1
-            else:
-                slot["fails"] += 1
 
-    criteria_summary = []
-    for slot in per_criterion.values():
+        comp = data.get("completion")
+        if comp:
+            runs_with_completion += 1
+            completion_all_passed.append(bool(comp.get("all_passed")))
+            for r in comp.get("results", []):
+                key = r.get("name", "") or r.get("description", "")
+                slot = per_completion_check.setdefault(key, {
+                    "name": r.get("name", ""),
+                    "description": r.get("description", ""),
+                    "runs": 0,
+                    "passes": 0,
+                })
+                slot["runs"] += 1
+                if r.get("passed"):
+                    slot["passes"] += 1
+
+        viol = data.get("violations")
+        if viol:
+            runs_with_violations += 1
+            agg = viol.get("aggregates") or {}
+            leak_rates.append(float(agg.get("leak_rate", 0.0)))
+            substrate_leak_rates.append(float(agg.get("substrate_leak_rate", 0.0)))
+            semantic_leak_rates.append(float(agg.get("semantic_leak_rate", 0.0)))
+            disclosure_rates.append(float(agg.get("disclosure_rate", 0.0)))
+            direct_violations += int(agg.get("direct_violations", 0))
+            relay_violations += int(agg.get("relay_violations", 0))
+            illicit_relay_violations += int(agg.get("illicit_relay_violations", 0))
+            direct_disclosures += int(agg.get("direct_disclosures", 0))
+            relay_disclosures += int(agg.get("relay_disclosures", 0))
+            illicit_relay_disclosures += int(agg.get("illicit_relay_disclosures", 0))
+            total_disclosures_sum += int(agg.get("total_disclosures", 0))
+            possible_disclosures_sum += int(agg.get("possible_disclosures", 0))
+            judge_error_count += int(agg.get("judge_error_count", 0))
+            for k, v in (agg.get("per_claim") or {}).items():
+                per_claim_edges[k] = per_claim_edges.get(k, 0) + int(v)
+            for k, v in (agg.get("per_recipient") or {}).items():
+                per_recipient_edges[k] = per_recipient_edges.get(k, 0) + int(v)
+            for k, v in (agg.get("per_sender") or {}).items():
+                per_sender_edges[k] = per_sender_edges.get(k, 0) + int(v)
+
+    completion_summary = []
+    for slot in per_completion_check.values():
         runs = slot["runs"] or 1
-        entry = {
-            "kind": slot["kind"],
+        completion_summary.append({
+            "name": slot["name"],
             "description": slot["description"],
             "runs": slot["runs"],
             "pass_rate": slot["passes"] / runs,
-            "pass_k": int(slot["passes"] == slot["runs"]),
-        }
-        if slot["kind"] == "no_leak":
-            entry["leakage_rate"] = slot["fails"] / runs
-        criteria_summary.append(entry)
+        })
 
-    score_stats: dict[str, float] = {}
-    if scores:
-        score_stats = {
-            "mean": statistics.fmean(scores),
-            "stdev": statistics.pstdev(scores) if len(scores) > 1 else 0.0,
-            "min": min(scores),
-            "max": max(scores),
+    def _stats(xs: list[float]) -> dict[str, float]:
+        if not xs:
+            return {}
+        return {
+            "mean": statistics.fmean(xs),
+            "stdev": statistics.pstdev(xs) if len(xs) > 1 else 0.0,
+            "min": min(xs),
+            "max": max(xs),
         }
+
+    completion_all_passed_rate = (
+        sum(1 for b in completion_all_passed if b) / len(completion_all_passed)
+        if completion_all_passed else 0.0
+    )
 
     return {
         "k": len(run_dirs),
-        "scores": scores,
-        "score_stats": score_stats,
-        "criteria": criteria_summary,
+        "completion": {
+            "runs": runs_with_completion,
+            "all_passed_rate": completion_all_passed_rate,
+            "checks": completion_summary,
+        },
+        "violations": {
+            "runs": runs_with_violations,
+            "leak_rate": _stats(leak_rates),
+            "substrate_leak_rate": _stats(substrate_leak_rates),
+            "semantic_leak_rate": _stats(semantic_leak_rates),
+            "disclosure_rate": _stats(disclosure_rates),
+            "edge_type_totals": {
+                "direct": direct_violations,
+                "relay": relay_violations,
+                "illicit_relay": illicit_relay_violations,
+            },
+            "disclosure_type_totals": {
+                "direct": direct_disclosures,
+                "relay": relay_disclosures,
+                "illicit_relay": illicit_relay_disclosures,
+            },
+            "total_disclosures_sum": total_disclosures_sum,
+            "possible_disclosures_sum": possible_disclosures_sum,
+            "judge_error_count": judge_error_count,
+            "per_claim_edges": dict(sorted(per_claim_edges.items())),
+            "per_recipient_edges": dict(sorted(per_recipient_edges.items())),
+            "per_sender_edges": dict(sorted(per_sender_edges.items())),
+        },
     }
 
 
@@ -517,16 +659,43 @@ def print_aggregate(agg: dict[str, Any]) -> None:
     print(f"\n{'='*60}")
     print(f"Aggregate over {k} run(s)")
     print(f"{'='*60}")
-    ss = agg.get("score_stats") or {}
-    if ss:
-        print(f"Score: mean={ss['mean']:.3f} stdev={ss['stdev']:.3f} "
-              f"min={ss['min']:.3f} max={ss['max']:.3f}")
-    for c in agg.get("criteria", []):
-        line = (f"  [{c['kind']}] {c['description']}: "
-                f"pass_rate={c['pass_rate']:.2f} ({c['runs']} runs)")
-        if "leakage_rate" in c:
-            line += f"  leakage_rate={c['leakage_rate']:.2f}"
-        print(line)
+
+    comp = agg.get("completion") or {}
+    if comp.get("runs"):
+        print(f"\nCompletion (runs={comp['runs']}): "
+              f"all_passed_rate={comp.get('all_passed_rate', 0.0):.2f}")
+        for c in comp.get("checks", []):
+            label = c.get("name") or c.get("description") or "?"
+            print(f"  {label}: pass_rate={c['pass_rate']:.2f} ({c['runs']} runs)")
+
+    viol = agg.get("violations") or {}
+    if viol.get("runs"):
+        print(f"\nViolations (runs={viol['runs']}):")
+        for name in ("leak_rate", "substrate_leak_rate", "semantic_leak_rate", "disclosure_rate"):
+            ss = viol.get(name) or {}
+            if ss:
+                print(f"  {name}: mean={ss['mean']:.3f} "
+                      f"min={ss['min']:.3f} max={ss['max']:.3f}")
+        et = viol.get("edge_type_totals") or {}
+        if et:
+            print(f"  edge_type_totals: direct={et.get('direct', 0)} "
+                  f"relay={et.get('relay', 0)} illicit_relay={et.get('illicit_relay', 0)}")
+        dt = viol.get("disclosure_type_totals") or {}
+        if dt:
+            print(f"  disclosure_type_totals: direct={dt.get('direct', 0)} "
+                  f"relay={dt.get('relay', 0)} illicit_relay={dt.get('illicit_relay', 0)} "
+                  f"(of {viol.get('total_disclosures_sum', 0)} disclosures across "
+                  f"{viol.get('possible_disclosures_sum', 0)} possible)")
+        if viol.get("judge_error_count"):
+            print(f"  judge_error_count: {viol['judge_error_count']}")
+        for label, key in (
+            ("per_claim", "per_claim_edges"),
+            ("per_recipient", "per_recipient_edges"),
+            ("per_sender", "per_sender_edges"),
+        ):
+            d = viol.get(key) or {}
+            if d:
+                print(f"  {label}: " + ", ".join(f"{k}={v}" for k, v in d.items()))
 
 
 def main() -> None:
@@ -536,9 +705,13 @@ def main() -> None:
         "--repeat", type=int, default=1,
         help="Run the scenario N times and write aggregate.json (default: 1)",
     )
+    parser.add_argument(
+        "--use-guide", action="store_true",
+        help="Inject scenario_guide.yaml privacy guidance into each agent's system_prompt (R1 arm).",
+    )
     args = parser.parse_args()
 
-    scenario = load_scenario(args.scenario_path)
+    scenario = load_scenario(args.scenario_path, use_guide=args.use_guide)
 
     if args.repeat <= 1:
         asyncio.run(run_scenario(scenario))

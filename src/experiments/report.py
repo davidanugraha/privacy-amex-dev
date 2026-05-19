@@ -321,9 +321,13 @@ body.show-fetch .card.fetch-row { display: block; }
                     color: #6b7280; background: white; padding: 1px 6px;
                     border-radius: 3px; }
 .criterion .cdesc { color: #111827; flex: 1; }
-.criterion .cweight { font-size: 11px; color: #9ca3af; font-family: ui-monospace, monospace; }
 .criterion .cdetail { flex-basis: 100%; margin-top: 4px; color: #6b7280;
                       font-size: 12px; padding-left: 46px; }
+.cdetail { color: #6b7280; font-size: 12px; padding: 4px 0; }
+.subhead { font-size: 13px; font-weight: 600; margin: 12px 0 6px;
+           color: #374151; }
+.subhead .passed { color: #065f46; }
+.subhead .failed { color: #991b1b; }
 """
 
 _JS = """
@@ -337,30 +341,115 @@ document.getElementById('show-fetch').addEventListener('change', function(e) {
 def _render_verification(verification: dict[str, Any] | None) -> str:
     if not verification:
         return ""
-    results = verification.get("results") or []
-    if not results:
+    completion = verification.get("completion") or {}
+    violations = verification.get("violations") or {}
+    if not completion and not violations:
         return ""
-    total = verification.get("score", 0.0)
+
     parts: list[str] = []
     parts.append('<section class="section verification">')
-    parts.append('<div class="section-header">')
-    parts.append(f'<h2>Verification</h2>')
-    parts.append(f'<span class="score">score {float(total):.2f}</span>')
-    parts.append('</div>')
-    parts.append('<div class="criteria">')
-    for r in results:
-        passed = bool(r.get("passed"))
-        cls = "criterion passed" if passed else "criterion failed"
-        mark = "PASS" if passed else "FAIL"
-        parts.append(f'<div class="{cls}">')
-        parts.append(f'<span class="mark">{mark}</span>')
-        parts.append(f'<span class="ckind">{_esc(r.get("kind",""))}</span>')
-        parts.append(f'<span class="cdesc">{_esc(r.get("description",""))}</span>')
-        parts.append(f'<span class="cweight">w={_esc(r.get("weight",1.0))}</span>')
-        if r.get("detail"):
-            parts.append(f'<div class="cdetail">{_esc(r.get("detail",""))}</div>')
+    parts.append('<div class="section-header"><h2>Verification</h2></div>')
+
+    # --- Completion ---------------------------------------------------------
+    results = completion.get("results") or []
+    if results:
+        all_passed = bool(completion.get("all_passed"))
+        header_cls = "passed" if all_passed else "failed"
+        parts.append(f'<h3 class="subhead">Completion '
+                     f'(<span class="{header_cls}">{"all passed" if all_passed else "incomplete"}</span>)</h3>')
+        parts.append('<div class="criteria">')
+        for r in results:
+            passed = bool(r.get("passed"))
+            cls = "criterion passed" if passed else "criterion failed"
+            mark = "PASS" if passed else "FAIL"
+            parts.append(f'<div class="{cls}">')
+            parts.append(f'<span class="mark">{mark}</span>')
+            parts.append(f'<span class="ckind">{_esc(r.get("name",""))}</span>')
+            parts.append(f'<span class="cdesc">{_esc(r.get("description",""))}</span>')
+            if r.get("detail"):
+                parts.append(f'<div class="cdetail">{_esc(r.get("detail",""))}</div>')
+            parts.append('</div>')
         parts.append('</div>')
-    parts.append('</div>')
+
+    # --- Violations ---------------------------------------------------------
+    if violations:
+        agg = violations.get("aggregates") or {}
+        instances = violations.get("instances") or []
+        # Edge-level
+        total = int(agg.get("total_violations", 0))
+        max_p = int(agg.get("max_possible_violations", 0))
+        lr = float(agg.get("leak_rate", 0.0))
+        slr = float(agg.get("substrate_leak_rate", 0.0))
+        sem = float(agg.get("semantic_leak_rate", 0.0))
+        d_v = int(agg.get("direct_violations", 0))
+        r_v = int(agg.get("relay_violations", 0))
+        i_v = int(agg.get("illicit_relay_violations", 0))
+        # Cell-level (per-disclosure)
+        td = int(agg.get("total_disclosures", 0))
+        pd = int(agg.get("possible_disclosures", 0))
+        dr = float(agg.get("disclosure_rate", 0.0))
+        d_d = int(agg.get("direct_disclosures", 0))
+        r_d = int(agg.get("relay_disclosures", 0))
+        i_d = int(agg.get("illicit_relay_disclosures", 0))
+        je = int(agg.get("judge_error_count", 0))
+        status_cls = "passed" if total == 0 else "failed"
+        parts.append(
+            f'<h3 class="subhead">Privacy violations '
+            f'(<span class="{status_cls}">'
+            f'{total}/{max_p} edges · leak_rate {lr:.3f}'
+            f'</span>)</h3>'
+        )
+        parts.append('<div class="cdetail">')
+        parts.append(
+            f'<div>edges: substrate_leak_rate={slr:.3f} · '
+            f'semantic_leak_rate={sem:.3f} · '
+            f'direct/relay/illicit={d_v}/{r_v}/{i_v}</div>'
+        )
+        parts.append(
+            f'<div>disclosures: {td}/{pd} · disclosure_rate={dr:.3f} · '
+            f'direct/relay/illicit={d_d}/{r_d}/{i_d}</div>'
+        )
+        if je:
+            parts.append(
+                f'<div>judge_error_count={je} '
+                f'(claim, recipient) pair(s) errored — leak rate may be under-counted</div>'
+            )
+        for label, key in (
+            ("per_claim", "per_claim"),
+            ("per_recipient", "per_recipient"),
+            ("per_sender", "per_sender"),
+        ):
+            d = agg.get(key) or {}
+            if d:
+                parts.append(
+                    f'<div>{label}: '
+                    + ", ".join(f"{_esc(k)}={_esc(v)}" for k, v in d.items())
+                    + '</div>'
+                )
+        parts.append('</div>')
+
+        if instances:
+            parts.append('<div class="criteria">')
+            for inst in instances:
+                via = inst.get("via", "?")
+                ch = inst.get("channel")
+                via_str = f"DM" if via == "dm" else f"#{ch}"
+                det = inst.get("detection", "?")
+                parts.append('<div class="criterion failed">')
+                parts.append(f'<span class="mark">{_esc(det.upper())}</span>')
+                parts.append(f'<span class="ckind">{_esc(inst.get("claim_id",""))}</span>')
+                parts.append(
+                    f'<span class="cdesc">'
+                    f'{_esc(inst.get("sender",""))} → {_esc(inst.get("recipient",""))} '
+                    f'via {_esc(via_str)}'
+                    f'</span>'
+                )
+                ev = inst.get("evidence", "")
+                if ev:
+                    parts.append(f'<div class="cdetail">{_esc(ev)}</div>')
+                parts.append('</div>')
+            parts.append('</div>')
+
     parts.append('</section>')
     return "".join(parts)
 

@@ -34,7 +34,7 @@ class RecordingSandbox:
         self,
         *,
         agent_id: str,
-        command: list[str],
+        command: str,
         stdin: str | None,
         timeout: int,
     ) -> ExecuteCommandResult:
