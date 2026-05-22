@@ -379,8 +379,6 @@ def _render_verification(verification: dict[str, Any] | None) -> str:
         total = int(agg.get("total_violations", 0))
         max_p = int(agg.get("max_possible_violations", 0))
         lr = float(agg.get("leak_rate", 0.0))
-        slr = float(agg.get("substrate_leak_rate", 0.0))
-        sem = float(agg.get("semantic_leak_rate", 0.0))
         d_v = int(agg.get("direct_violations", 0))
         r_v = int(agg.get("relay_violations", 0))
         i_v = int(agg.get("illicit_relay_violations", 0))
@@ -401,9 +399,7 @@ def _render_verification(verification: dict[str, Any] | None) -> str:
         )
         parts.append('<div class="cdetail">')
         parts.append(
-            f'<div>edges: substrate_leak_rate={slr:.3f} · '
-            f'semantic_leak_rate={sem:.3f} · '
-            f'direct/relay/illicit={d_v}/{r_v}/{i_v}</div>'
+            f'<div>edges: direct/relay/illicit={d_v}/{r_v}/{i_v}</div>'
         )
         parts.append(
             f'<div>disclosures: {td}/{pd} · disclosure_rate={dr:.3f} · '
@@ -434,9 +430,8 @@ def _render_verification(verification: dict[str, Any] | None) -> str:
                 via = inst.get("via", "?")
                 ch = inst.get("channel")
                 via_str = f"DM" if via == "dm" else f"#{ch}"
-                det = inst.get("detection", "?")
                 parts.append('<div class="criterion failed">')
-                parts.append(f'<span class="mark">{_esc(det.upper())}</span>')
+                parts.append(f'<span class="mark">LEAK</span>')
                 parts.append(f'<span class="ckind">{_esc(inst.get("claim_id",""))}</span>')
                 parts.append(
                     f'<span class="cdesc">'

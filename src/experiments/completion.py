@@ -179,7 +179,12 @@ def assert_json_fields(
 
 
 async def assert_llm_judged(
-    content: str, criteria: str, model: str | None = None,
+    content: str,
+    criteria: str,
+    model: str | None = None,
+    *,
+    logger: Any | None = None,
+    check_name: str | None = None,
 ) -> tuple[bool, str]:
     """LLM-judge a free-text artifact against a list of required criteria.
 
@@ -206,7 +211,11 @@ Cite specific artifact text in your reasoning.
 """
     try:
         verdict, _ = await generate_struct(
-            prompt, response_format=_JudgeVerdict, model=model,
+            prompt,
+            response_format=_JudgeVerdict,
+            model=model,
+            logger=logger,
+            log_metadata={"phase": "completion", "check": check_name or ""},
         )
     except Exception as e:
         return False, f"judge error: {e}"

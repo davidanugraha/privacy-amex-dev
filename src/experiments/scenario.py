@@ -8,7 +8,7 @@ import yaml
 
 from src.privacy.agents.privacy_agent.models import PrivacyAgentProfile
 
-from .violations import SensitiveClaim
+from .violations import JudgeMode, SensitiveClaim
 
 
 @dataclass
@@ -52,17 +52,29 @@ class Scenario:
     # `load_scenario` from the YAML path.
     scenario_dir: Path = field(default_factory=lambda: Path("."))
     # Violation eval reads `sensitive_claims` directly. Each claim's
-    # `detectors` + `authorized_for` is the ground truth the violation
-    # evaluator iterates over.
+    # `claim` natural-language string + `authorized_for` envelope is the
+    # ground truth the judge reads against.
     goal: str | None = None
     sensitive_claims: list[SensitiveClaim] = field(default_factory=list)
-    # Optional model override for LLM-judged eval (goal_achieved + the
-    # LLM-judge path in evaluate_violations). When None, the LLM client
-    # uses its environment-configured default.
+    # Optional model override for LLM-judged eval. When None, the LLM
+    # client uses its environment-configured default.
     eval_model: str | None = None
-    # Toggle the LLM-judge path of evaluate_violations. The substrate
-    # (regex) path always runs.
-    enable_llm_violation_judge: bool = True
+    # Which judge implementation to use for leak eval. See
+    # `src/experiments/violations.py::evaluate_violations`.
+    #   - "llm":   single-shot LLM judge over the full per-recipient transcript (default)
+    #   - "agent": tool-using Agent-as-judge — strict superset of llm
+    #              (sees same transcript inline, plus grep + verification tools)
+    #   - "off":   skip leak eval
+    # For the current corpus (streams fit easily in one prompt), llm is
+    # the sensible default. Switch to agent for long streams, future
+    # file-inspection tooling, or when iterative verification is wanted.
+    judge_mode: JudgeMode = "llm"
+    # Agent-as-judge knobs. `judge_max_rounds` is the per-pair turn budget
+    # (number of LLM calls before forcing a verdict / budget_exhausted).
+    # `judge_max_pairs` is a dev-sampling knob: if set, randomly sample
+    # that many (claim, recipient) pairs and skip the rest.
+    judge_max_rounds: int = 8
+    judge_max_pairs: int | None = None
     expected_failure_modes: list[dict[str, Any]] = field(default_factory=list)
     provenance_store_content: bool = False
     provenance_policy: str | None = None
@@ -124,6 +136,24 @@ def _apply_guide(
 """
 
 
+def _resolve_judge_mode(raw: dict[str, Any]) -> JudgeMode:
+    """Pick the judge mode from YAML, honoring the legacy bool key for back-compat.
+
+    Precedence: explicit `judge_mode` > legacy `enable_llm_violation_judge` > default "llm".
+    The legacy True maps to "llm" (the default judge); False maps to "off".
+    """
+    if "judge_mode" in raw:
+        value = raw["judge_mode"]
+        if value not in ("off", "llm", "agent"):
+            raise ValueError(
+                f"judge_mode must be one of 'off', 'llm', 'agent'; got {value!r}"
+            )
+        return value
+    if "enable_llm_violation_judge" in raw:
+        return "llm" if raw["enable_llm_violation_judge"] else "off"
+    return "llm"
+
+
 def load_scenario(path: str | Path, use_guide: bool = False) -> Scenario:
     """Load a Scenario from a YAML file.
 
@@ -177,7 +207,9 @@ def load_scenario(path: str | Path, use_guide: bool = False) -> Scenario:
         goal=raw.get("goal"),
         sensitive_claims=sensitive_claims,
         eval_model=raw.get("eval_model"),
-        enable_llm_violation_judge=raw.get("enable_llm_violation_judge", True),
+        judge_mode=_resolve_judge_mode(raw),
+        judge_max_rounds=raw.get("judge_max_rounds", 8),
+        judge_max_pairs=raw.get("judge_max_pairs"),
         expected_failure_modes=list(raw.get("expected_failure_modes", [])),
         provenance_store_content=raw.get("provenance_store_content", False),
         provenance_policy=raw.get("provenance_policy"),
