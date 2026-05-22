@@ -11,6 +11,7 @@ from src.privacy.core import (
     CreateChannel,
     ExecuteCommand,
     FetchMessages,
+    FileMessage,
     MarkDone,
     ReadMessages,
     SendMessage,
@@ -142,6 +143,12 @@ class PrivacyProtocol(BasePrivacyProtocol):
                 if blocked is not None:
                     return blocked
             result = await execute_send_message(parsed_action, database)
+            if not result.is_error and isinstance(parsed_action.message, FileMessage):
+                await self._deposit_file(
+                    sender_id=parsed_action.from_agent_id,
+                    recipient_ids=[parsed_action.to_agent_id],
+                    message=parsed_action.message,
+                )
             if self._recorder is not None:
                 self._recorder.record_send(
                     sender_agent_id=parsed_action.from_agent_id,
@@ -165,6 +172,14 @@ class PrivacyProtocol(BasePrivacyProtocol):
                 if blocked is not None:
                     return blocked
             result = await execute_channel_message(parsed_action, self._channels)
+            if not result.is_error and isinstance(parsed_action.message, FileMessage):
+                members = self._channels.get(parsed_action.channel, set())
+                recipients = [m for m in members if m != parsed_action.from_agent_id]
+                await self._deposit_file(
+                    sender_id=parsed_action.from_agent_id,
+                    recipient_ids=recipients,
+                    message=parsed_action.message,
+                )
             if self._recorder is not None:
                 self._recorder.record_send(
                     sender_agent_id=parsed_action.from_agent_id,
@@ -221,6 +236,38 @@ class PrivacyProtocol(BasePrivacyProtocol):
             )
 
         raise ValueError(f"Unknown action type: {parsed_action.type}")
+
+    async def _deposit_file(
+        self,
+        *,
+        sender_id: str,
+        recipient_ids: list[str],
+        message: FileMessage,
+    ) -> None:
+        """Auto-deposit a delivered file into each recipient's sandbox.
+
+        Path convention: `inbox/<sender_id>/<filename>`. Overwrites if a file
+        with the same name from the same sender already exists. Failures are
+        logged but don't poison the action result — the message is already
+        recorded in the action log (the canonical evidence channel); sandbox
+        deposit is convenience for shell-level tools.
+        """
+        deposit_path = f"inbox/{sender_id}/{message.filename}"
+        for recipient in recipient_ids:
+            try:
+                await self._sandbox.write_file(recipient, deposit_path, message.content)
+            except Exception as e:  # noqa: BLE001
+                # Don't escalate — the message is in the action log regardless.
+                # Surface via the recorder if attached so the run trace shows it.
+                if self._recorder is not None:
+                    self._recorder.record_send(
+                        sender_agent_id=sender_id,
+                        recipient_agent_id=recipient,
+                        channel=None,
+                        content=f"<file deposit failed: {deposit_path}>",
+                        delivered=False,
+                        delivery_error=f"sandbox.write_file raised: {e!r}",
+                    )
 
     async def _check_policy(
         self,

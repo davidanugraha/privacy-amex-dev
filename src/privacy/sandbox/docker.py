@@ -234,6 +234,27 @@ class DockerSandbox:
         """
         return await asyncio.to_thread(self._read_file_blocking, agent_id, path)
 
+    async def write_file(self, agent_id: str, path: str, content: str) -> None:
+        await asyncio.to_thread(self._write_file_blocking, agent_id, path, content)
+
+    def _write_file_blocking(self, agent_id: str, path: str, content: str) -> None:
+        container = self._containers.get(agent_id)
+        if container is None:
+            raise RuntimeError(
+                f"Sandbox.write_file called for agent {agent_id!r} without prior setup()"
+            )
+        # Tar-pack the file and `put_archive` it into the workdir — same shape
+        # `setup()` uses for initial files. Parent dirs created implicitly by
+        # the archive extraction.
+        data = content.encode()
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w") as tar:
+            info = tarfile.TarInfo(name=path)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        tar_buf.seek(0)
+        container.put_archive(self._workdir, tar_buf.read())
+
     def _read_file_blocking(self, agent_id: str, path: str) -> str | None:
         container = self._containers.get(agent_id)
         if container is not None:

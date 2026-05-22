@@ -47,12 +47,20 @@ class ExplicitConstraint(BaseModel):
 
 
 class Artifact(BaseModel):
-    """A piece of data owned by an organization with a sensitivity label."""
+    """A piece of data held by an organization with a sensitivity label.
+
+    The accountable creator/generator of the artifact is the agent
+    itself — there is no per-artifact owner field, because under the
+    library's "no cross-stakeholder provenance in metadata" rule it
+    would always equal the agent's `role.organization` and never carry
+    information. Subject-rights (HIPAA patients, FCRA consumers, etc.)
+    are inferred from `data_type` plus the agent's role context, with
+    per-task subject identity in `scenario.sensitive_claims.about`.
+    """
 
     name: str
     data_type: str = Field(description="e.g. 'financial_record', 'patient_pii'")
     sensitivity: SensitivityLevel
-    owner_principal: str = Field(description="Name of the organization that owns this artifact")
     content: str = Field(description="The actual data content")
 
 

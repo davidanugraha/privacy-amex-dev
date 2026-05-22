@@ -64,3 +64,12 @@ class Sandbox(Protocol):
         relative to the workspace root.
         """
         ...
+
+    async def write_file(self, agent_id: str, path: str, content: str) -> None:
+        """Write a file into the agent's workspace, creating parent dirs.
+
+        Overwrites if the file already exists. Used by the SendFile primitive
+        to auto-deposit received files into the recipient's sandbox at
+        `inbox/<sender_id>/<filename>`. Path is relative to the workspace root.
+        """
+        ...

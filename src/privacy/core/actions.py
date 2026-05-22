@@ -26,7 +26,22 @@ class TextMessage(BaseModel):
     content: str = Field(description="Text content of the message")
 
 
-Message = TextMessage
+class FileMessage(BaseModel):
+    """A file delivered as a message — the message body IS the file content.
+
+    The substrate auto-deposits the file into the recipient's sandbox at
+    `inbox/<sender_id>/<filename>` so shell-level tools (execute_command,
+    read_file) work naturally; the same content is also retrievable via
+    ReadMessages (sub-typed under Message so it shares the inbox flow with
+    TextMessage). Text-only for now, no binary, no MIME field.
+    """
+
+    type: Literal["file"] = "file"
+    filename: str = Field(description="Logical filename as the recipient will see it")
+    content: str = Field(description="File body (text content)")
+
+
+Message = Annotated[TextMessage | FileMessage, Field(discriminator="type")]
 
 MessageAdapter: TypeAdapter[Message] = TypeAdapter(Message)
 

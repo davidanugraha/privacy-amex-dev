@@ -8,6 +8,8 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
+from pathlib import PurePosixPath
+
 from src.privacy.core import (
     ActionExecutionRequest,
     ActionExecutionResult,
@@ -19,6 +21,7 @@ from src.privacy.core import (
     ExecuteCommandResult,
     FetchMessages,
     FetchMessagesResponse,
+    FileMessage,
     MarkDone,
     Message,
     ReadMessages,
@@ -71,6 +74,13 @@ class _CompactionSummary(BaseModel):
 
     summary: str
 
+
+# Soft cap on file-transfer size. Returns an error to the sender rather than
+# crashing the run. Tunable.
+SEND_FILE_MAX_KB = 64
+SEND_FILE_MAX_BYTES = SEND_FILE_MAX_KB * 1024
+
+
 # Default tool definitions for privacy agents.
 DEFAULT_TOOLS: list[dict[str, Any]] = [
     {
@@ -95,6 +105,48 @@ DEFAULT_TOOLS: list[dict[str, Any]] = [
                 "content": {"type": "string", "description": "Message content"},
             },
             "required": ["channel", "content"],
+        },
+    },
+    {
+        "name": "send_file",
+        "description": (
+            f"Send a file from your sandbox workspace to another agent as a direct message. File size cap: {SEND_FILE_MAX_KB} KB."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to_agent_id": {"type": "string", "description": "Recipient agent ID"},
+                "source_path": {
+                    "type": "string",
+                    "description": "Path to the file in your sandbox (e.g. 'report.json' or 'docs/Q3.csv')",
+                },
+                "dest_filename": {
+                    "type": "string",
+                    "description": "Optional renamed filename for the recipient (defaults to the basename of source_path)",
+                },
+            },
+            "required": ["to_agent_id", "source_path"],
+        },
+    },
+    {
+        "name": "send_channel_file",
+        "description": (
+            f"Send a file from your sandbox workspace to all members of a channel. File size cap: {SEND_FILE_MAX_KB} KB."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "description": "Channel name (e.g. 'general')"},
+                "source_path": {
+                    "type": "string",
+                    "description": "Path to the file in your sandbox",
+                },
+                "dest_filename": {
+                    "type": "string",
+                    "description": "Optional renamed filename for recipients (defaults to basename)",
+                },
+            },
+            "required": ["channel", "source_path"],
         },
     },
     {
@@ -347,6 +399,29 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
             return ReadMessagesResponse(messages=[], errors=[])
         return ReadMessagesResponse.model_validate(result.content)
 
+    async def _build_file_message(
+        self, source_path: str, dest_filename: str | None,
+    ) -> FileMessage | str:
+        """Read `source_path` from this agent's sandbox into a FileMessage.
+
+        Returns a `FileMessage` on success, or a pre-formatted error-JSON
+        string on failure (file missing, exceeds size cap). The caller passes
+        the error string straight through as the tool result.
+        """
+        sandbox = self._protocol.sandbox
+        content = await sandbox.read_file(self.id, source_path)
+        if content is None:
+            return json.dumps({"error": f"file not found in your sandbox: {source_path!r}"})
+        if len(content) > SEND_FILE_MAX_BYTES:
+            return json.dumps({
+                "error": (
+                    f"file too large to send: {len(content)} bytes "
+                    f"(max {SEND_FILE_MAX_BYTES})"
+                )
+            })
+        filename = dest_filename or PurePosixPath(source_path).name
+        return FileMessage(filename=filename, content=content)
+
     # --- Memory compaction ----------------------------------------------------
 
     async def _compact_history(
@@ -402,7 +477,7 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
         rendered = "\n".join(rendered_lines)
 
         summary_prompt = f"""\
-Summarize the conversation history below as compactly as possible. Preserve: commitments you've made, sensitive information you've learned and constraints around it, pending tasks and their status, and the identities/roles of who said what. Be specific, not abstract. Do not include preamble or apology — just the summary itself.
+Summarize the conversation history below as compactly as possible. Preserve: commitments you've made, key facts learned and any caveats around their use, pending tasks and their status. Be specific, not abstract. Do not include preamble or apology, just the summary itself.
 
 ### HISTORY
 {rendered}
@@ -457,6 +532,40 @@ Summarize the conversation history below as compactly as possible. Preserve: com
                 return json.dumps({"error": result.content})
             return json.dumps({"status": "sent", "channel": arguments.get("channel", "general")})
 
+        if name == "send_file":
+            file_msg = await self._build_file_message(
+                arguments["source_path"], arguments.get("dest_filename"),
+            )
+            if isinstance(file_msg, str):
+                return file_msg  # pre-built error JSON
+            result = await self.send_message(arguments["to_agent_id"], file_msg)
+            if result.is_error:
+                return json.dumps({"error": result.content})
+            return json.dumps({
+                "status": "sent",
+                "to": arguments["to_agent_id"],
+                "filename": file_msg.filename,
+                "bytes": len(file_msg.content),
+            })
+
+        if name == "send_channel_file":
+            file_msg = await self._build_file_message(
+                arguments["source_path"], arguments.get("dest_filename"),
+            )
+            if isinstance(file_msg, str):
+                return file_msg
+            result = await self.send_channel_message(
+                arguments.get("channel", "general"), file_msg,
+            )
+            if result.is_error:
+                return json.dumps({"error": result.content})
+            return json.dumps({
+                "status": "sent",
+                "channel": arguments.get("channel", "general"),
+                "filename": file_msg.filename,
+                "bytes": len(file_msg.content),
+            })
+
         if name == "create_channel":
             result = await self.create_channel(
                 arguments["channel"], arguments["member_ids"],
@@ -488,7 +597,12 @@ Summarize the conversation history below as compactly as possible. Preserve: com
                         "channel": m.channel,
                         "to": m.to_agent_id if m.channel is None else None,
                         "created_at": m.created_at.isoformat(),
+                        "type": m.message.type,
                         "content": m.message.content,
+                        **(
+                            {"filename": m.message.filename}
+                            if isinstance(m.message, FileMessage) else {}
+                        ),
                     }
                     for m in response.messages
                 ],

@@ -108,3 +108,13 @@ class LocalSubprocessSandbox:
             return target.read_text()
         except (OSError, UnicodeDecodeError):
             return None
+
+    async def write_file(self, agent_id: str, path: str, content: str) -> None:
+        ws = self._workspaces.get(agent_id)
+        if ws is None:
+            raise RuntimeError(
+                f"Sandbox.write_file called for agent {agent_id!r} without prior setup()"
+            )
+        target = ws / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)

@@ -1,6 +1,16 @@
 """System prompt builder for privacy agents."""
 
-from .models import PrivacyAgentProfile
+from .models import PrivacyAgentProfile, SensitivityLevel
+
+
+def _coarse_sensitivity(s: SensitivityLevel) -> str:
+    """Collapse the 4-level schema tier into the 2-level tier the agent sees.
+
+    Schema keeps PUBLIC / INTERNAL / CONFIDENTIAL / SECRET for eval ground
+    truth. Agents see only PUBLIC vs INTERNAL — realistic enterprise
+    metadata without telegraphing fine-grained answers.
+    """
+    return "PUBLIC" if s == "PUBLIC" else "INTERNAL"
 
 
 def build_system_prompt(profile: PrivacyAgentProfile, peer_ids: list[str]) -> str:
@@ -51,7 +61,7 @@ def build_system_prompt(profile: PrivacyAgentProfile, peer_ids: list[str]) -> st
 
     if profile.artifacts:
         artifact_lines = "\n".join(
-            f"  - [{a.sensitivity}] {a.name} ({a.data_type}): {a.content}"
+            f"  - [{_coarse_sensitivity(a.sensitivity)}] {a.name} ({a.data_type}): {a.content}"
             for a in profile.artifacts
         )
         artifacts_block = f"You have access to these data artifacts:\n{artifact_lines}\n\n"

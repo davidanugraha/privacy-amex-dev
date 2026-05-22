@@ -99,6 +99,8 @@ No new messages in your inbox. You can:
         """Render newly-arrived messages as a metadata-only inbox notification.
 
         Bodies are pulled by the agent via read_messages(message_ids=[...]).
+        File messages also auto-deposit to inbox/<sender>/<filename> in the
+        recipient's sandbox.
         """
         lines = []
         for msg in messages:
@@ -109,11 +111,16 @@ No new messages in your inbox. You can:
                 where = "DM"
                 arrow = "  → you"
             size = len(msg.message.content)
+            if msg.message.type == "file":
+                tag = f"file: {msg.message.filename}"
+            else:
+                tag = f"{size} chars"
             lines.append(
-                f"  #{msg.index}  {where:<10}  {msg.from_agent_id}{arrow}  {size} chars"
+                f"  #{msg.index}  {where:<10}  {msg.from_agent_id}{arrow}  {tag}"
             )
         body = "\n".join(lines)
         return f"""\
 Inbox — {len(messages)} new message(s) since last check:
 {body}
-Use read_messages(message_ids=[...]) to read bodies."""
+Use read_messages(message_ids=[...]) to read bodies. File messages also
+land at inbox/<sender>/<filename> in your sandbox."""
