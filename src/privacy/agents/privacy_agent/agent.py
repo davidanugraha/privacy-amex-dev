@@ -24,7 +24,7 @@ class PrivacyAgent(BaseSimplePrivacyAgent[PrivacyAgentProfile]):
         protocol: BasePrivacyProtocol,
         database: BaseDatabaseController,
         peer_ids: list[str] | None = None,
-        polling_interval: float = 2.0,
+        polling_interval: float = 10.0,
         max_steps: int | None = None,
         max_tool_rounds: int = 10,
         compact_at_tokens: int | None = None,
@@ -115,8 +115,9 @@ No new messages in your inbox. You can:
                 tag = f"file: {msg.message.filename}"
             else:
                 tag = f"{size} chars"
+            ts = msg.created_at.strftime("%H:%M:%SZ")
             lines.append(
-                f"  #{msg.index}  {where:<10}  {msg.from_agent_id}{arrow}  {tag}"
+                f"  #{msg.index}  {ts}  {where:<10}  {msg.from_agent_id}{arrow}  {tag}"
             )
         body = "\n".join(lines)
         return f"""\

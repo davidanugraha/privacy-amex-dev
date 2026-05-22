@@ -33,6 +33,8 @@ class Usage(BaseModel):
     """Usage information about a LLM completion."""
 
     token_count: int
+    input_tokens: int = 0
+    output_tokens: int = 0
     provider: str
     model: str
 
@@ -64,6 +66,8 @@ class LLMCallLog(BaseModel):
     model: str | None
     duration_ms: float
     token_count: int
+    input_tokens: int = 0
+    output_tokens: int = 0
     error_message: str | None
     prompt: Sequence[AllowedChatCompletionMessageParams] | str
     response: str | dict[str, Any]
@@ -175,6 +179,8 @@ class ProviderClient(ABC, Generic[TConfig]):
                         model=result[1].model,
                         duration_ms=duration_ms,
                         token_count=result[1].token_count,
+                        input_tokens=result[1].input_tokens,
+                        output_tokens=result[1].output_tokens,
                         error_message=None,
                         prompt=messages,
                         response=result[0].model_dump(),
@@ -282,6 +288,8 @@ class ProviderClient(ABC, Generic[TConfig]):
                         model=result.usage.model,
                         duration_ms=duration_ms,
                         token_count=result.usage.token_count,
+                        input_tokens=result.usage.input_tokens,
+                        output_tokens=result.usage.output_tokens,
                         error_message=None,
                         prompt=str(messages[-1]) if messages else "",
                         response={"text": result.text, "tool_calls": len(result.tool_calls)},

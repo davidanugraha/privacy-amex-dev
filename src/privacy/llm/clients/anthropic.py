@@ -218,11 +218,12 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
                 # Find tool use block
                 for block in response.content:
                     if block.type == "tool_use":
+                        input_tokens = response.usage.input_tokens if response.usage else 0
+                        output_tokens = response.usage.output_tokens if response.usage else 0
                         usage = Usage(
-                            token_count=response.usage.input_tokens
-                            + response.usage.output_tokens
-                            if response.usage
-                            else 0,
+                            token_count=input_tokens + output_tokens,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
                             provider="anthropic",
                             model=model,
                         )
@@ -390,9 +391,12 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
 
         response = await self.client.messages.create(**args, stream=False)
 
+        input_tokens = response.usage.input_tokens if response.usage else 0
+        output_tokens = response.usage.output_tokens if response.usage else 0
         usage = Usage(
-            token_count=(response.usage.input_tokens + response.usage.output_tokens)
-            if response.usage else 0,
+            token_count=input_tokens + output_tokens,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             provider="anthropic",
             model=model,
         )

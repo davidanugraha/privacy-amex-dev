@@ -138,15 +138,21 @@ class GeminiClient(ProviderClient[GeminiConfig]):
 
                 response = await self.client.aio.models.generate_content(**args)
 
+                input_tokens = 0
+                output_tokens = 0
                 token_count = 0
-                if (
-                    response.usage_metadata
-                    and response.usage_metadata.total_token_count
-                ):
-                    token_count = response.usage_metadata.total_token_count
+                if response.usage_metadata:
+                    input_tokens = response.usage_metadata.prompt_token_count or 0
+                    output_tokens = response.usage_metadata.candidates_token_count or 0
+                    token_count = (
+                        response.usage_metadata.total_token_count
+                        or (input_tokens + output_tokens)
+                    )
 
                 usage = Usage(
                     token_count=token_count,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
                     provider="gemini",
                     model=model,
                 )
@@ -358,13 +364,23 @@ class GeminiClient(ProviderClient[GeminiConfig]):
             model=model, contents=contents, config=config, **kwargs,
         )
 
+        input_tokens = 0
+        output_tokens = 0
         token_count = 0
         if response.usage_metadata:
+            input_tokens = response.usage_metadata.prompt_token_count or 0
+            output_tokens = response.usage_metadata.candidates_token_count or 0
             token_count = (
-                (response.usage_metadata.prompt_token_count or 0)
-                + (response.usage_metadata.candidates_token_count or 0)
+                response.usage_metadata.total_token_count
+                or (input_tokens + output_tokens)
             )
-        usage = Usage(token_count=token_count, provider="gemini", model=model)
+        usage = Usage(
+            token_count=token_count,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            provider="gemini",
+            model=model,
+        )
 
         text_parts: list[str] = []
         tool_calls: list[ToolCallInfo] = []

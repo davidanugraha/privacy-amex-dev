@@ -147,6 +147,28 @@ def _normalize_tool_args(x: Any) -> dict[str, Any]:
     return {}
 
 
+def _extract_openai_token_counts(usage_obj: Any) -> tuple[int, int, int]:
+    """Pull (input, output, total) from an OpenAI usage object.
+
+    Chat Completions uses prompt_tokens/completion_tokens; the Responses API uses
+    input_tokens/output_tokens. Total is taken verbatim when present, else summed.
+    """
+    if usage_obj is None:
+        return 0, 0, 0
+    input_tokens = (
+        getattr(usage_obj, "input_tokens", None)
+        or getattr(usage_obj, "prompt_tokens", 0)
+        or 0
+    )
+    output_tokens = (
+        getattr(usage_obj, "output_tokens", None)
+        or getattr(usage_obj, "completion_tokens", 0)
+        or 0
+    )
+    total = getattr(usage_obj, "total_tokens", None) or (input_tokens + output_tokens)
+    return int(input_tokens), int(output_tokens), int(total)
+
+
 class OpenAIConfig(BaseLLMConfig):
     """Configuration for OpenAI provider."""
 
@@ -241,8 +263,13 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
                 )
                 parsed = response.choices[0].message.parsed
                 if parsed is not None:
+                    input_tokens, output_tokens, total = _extract_openai_token_counts(
+                        getattr(response, "usage", None)
+                    )
                     usage = Usage(
-                        token_count=response.usage.total_tokens if response.usage else 0,
+                        token_count=total,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
                         provider="openai",
                         model=model,
                     )
@@ -304,8 +331,13 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
             **kwargs,
         )
 
+        input_tokens, output_tokens, total = _extract_openai_token_counts(
+            getattr(response, "usage", None)
+        )
         usage = Usage(
-            token_count=response.usage.total_tokens if response.usage else 0,
+            token_count=total,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             provider="openai",
             model=model,
         )
@@ -370,11 +402,13 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
                     arguments=_normalize_tool_args(getattr(item, "arguments", {})),
                 ))
 
+        input_tokens, output_tokens, total = _extract_openai_token_counts(
+            getattr(response, "usage", None)
+        )
         usage = Usage(
-            token_count=(
-                getattr(response.usage, "total_tokens", 0)
-                if getattr(response, "usage", None) else 0
-            ),
+            token_count=total,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             provider="openai",
             model=model,
         )

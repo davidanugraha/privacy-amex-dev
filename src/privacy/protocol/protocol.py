@@ -1,6 +1,7 @@
 """Privacy framework protocol — DM, channels, sandbox execution."""
 
 from datetime import UTC, datetime
+from typing import Callable
 
 from src.privacy.core import (
     ActionAdapter,
@@ -43,6 +44,7 @@ class PrivacyProtocol(BasePrivacyProtocol):
         self,
         sandbox: Sandbox | None = None,
         recorder: ProvenanceRecorder | None = None,
+        action_sink: Callable[[ActionRow], None] | None = None,
     ):
         self._sandbox = sandbox or build_sandbox()
         self._channels: dict[str, set[str]] = {}
@@ -56,6 +58,7 @@ class PrivacyProtocol(BasePrivacyProtocol):
         # ends when every registered agent appears here.
         self._done_marks: set[str] = set()
         self._recorder = recorder
+        self._action_sink = action_sink
 
     @property
     def sandbox(self) -> Sandbox:
@@ -97,13 +100,17 @@ class PrivacyProtocol(BasePrivacyProtocol):
         parsed_action = ActionAdapter.validate_python(action.parameters)
         result = await self._dispatch(parsed_action, agent, database)
 
-        await database.actions.create(
-            ActionRow(
-                id="",
-                created_at=datetime.now(UTC),
-                data=ActionRowData(agent_id=agent.id, request=action, result=result),
-            )
+        row = ActionRow(
+            id="",
+            created_at=datetime.now(UTC),
+            data=ActionRowData(agent_id=agent.id, request=action, result=result),
         )
+        await database.actions.create(row)
+        if self._action_sink is not None:
+            try:
+                self._action_sink(row)
+            except Exception:
+                pass
         return result
 
     async def _dispatch(

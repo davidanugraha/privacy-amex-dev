@@ -4,7 +4,7 @@ import asyncio
 import json
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar
 
 from pydantic import BaseModel
 
@@ -322,12 +322,14 @@ class BaseSimplePrivacyAgent(BaseAgent[TProfile]):
         protocol: BasePrivacyProtocol,
         database: BaseDatabaseController,
         llm_config: BaseLLMConfig | None = None,
+        message_sink: Callable[[str, dict[str, Any]], None] | None = None,
     ):
         super().__init__(profile, protocol, database)
         self.last_fetch_index: int | None = None
         self.llm_config = llm_config or BaseLLMConfig()
         self._seen_message_indexes: set[int] = set()
         self._messages: list[dict[str, Any]] = []
+        self._message_sink = message_sink
 
     # --- Action helpers -------------------------------------------------------
 
@@ -617,6 +619,14 @@ Summarize the conversation history below as compactly as possible. Preserve: com
 
         return json.dumps({"error": f"unknown tool: {name}"})
 
+    def _stream_message(self, message: dict[str, Any]) -> None:
+        if self._message_sink is None:
+            return
+        try:
+            self._message_sink(self.id, message)
+        except Exception:
+            pass
+
     async def _run_agentic_loop(
         self,
         user_content: str,
@@ -640,6 +650,7 @@ Summarize the conversation history below as compactly as possible. Preserve: com
         shutdown.
         """
         self._messages.append({"role": "user", "content": user_content})
+        self._stream_message(self._messages[-1])
         if compact_at_tokens is not None:
             await self._compact_history(
                 compact_at_tokens=compact_at_tokens,
@@ -666,6 +677,7 @@ Summarize the conversation history below as compactly as possible. Preserve: com
 
             # Append the assistant's response to history
             self._messages.append(response.raw_assistant_message)
+            self._stream_message(self._messages[-1])
 
             if not response.tool_calls:
                 return False
@@ -681,6 +693,7 @@ Summarize the conversation history below as compactly as possible. Preserve: com
                     "name": tc.name,
                     "content": result_str,
                 })
+                self._stream_message(self._messages[-1])
 
                 if self.will_shutdown:
                     return False
