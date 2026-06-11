@@ -86,7 +86,11 @@ No new messages in your inbox. You can:
   - Call mark_done if the whole team has finished.
   - Respond with no tool calls to wait silently."""
 
-        system_prompt = build_system_prompt(self.profile, self._peer_ids)
+        system_prompt = build_system_prompt(
+            self.profile,
+            self._peer_ids,
+            shared_general_channel=getattr(self._protocol, "auto_general", True),
+        )
         self._last_step_truncated = await self._run_agentic_loop(
             user_content,
             system=system_prompt,

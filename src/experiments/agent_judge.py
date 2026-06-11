@@ -326,6 +326,7 @@ async def judge_pair(
     recipient: str,
     stream: list[tuple[ActionRow, str]],
     model: str | None = None,
+    provider: str | None = None,
     max_rounds: int = JUDGE_DEFAULT_MAX_ROUNDS,
     logger: Any | None = None,
 ) -> JudgeOutcome:
@@ -358,6 +359,7 @@ async def judge_pair(
                 tools=JUDGE_TOOLS,
                 system=JUDGE_SYSTEM_PROMPT,
                 model=model,
+                provider=provider,
                 logger=logger,
                 log_metadata={"phase": "judge", "claim_id": claim_id, "recipient": recipient},
             )
@@ -420,6 +422,7 @@ async def evaluate_with_agent_judge(
     all_agent_ids: list[str],
     *,
     model: str | None = None,
+    provider: str | None = None,
     max_rounds: int = JUDGE_DEFAULT_MAX_ROUNDS,
     max_pairs: int | None = None,
     concurrency: int = JUDGE_DEFAULT_CONCURRENCY,
@@ -461,6 +464,7 @@ async def evaluate_with_agent_judge(
                 recipient=recipient,
                 stream=stream,
                 model=model,
+                provider=provider,
                 max_rounds=max_rounds,
                 logger=logger,
             )

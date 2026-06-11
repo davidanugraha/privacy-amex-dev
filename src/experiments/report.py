@@ -343,7 +343,8 @@ def _render_verification(verification: dict[str, Any] | None) -> str:
         return ""
     completion = verification.get("completion") or {}
     violations = verification.get("violations") or {}
-    if not completion and not violations:
+    cross_subject = verification.get("cross_subject") or {}
+    if not completion and not violations and not cross_subject:
         return ""
 
     parts: list[str] = []
@@ -389,6 +390,10 @@ def _render_verification(verification: dict[str, Any] | None) -> str:
         d_d = int(agg.get("direct_disclosures", 0))
         r_d = int(agg.get("relay_disclosures", 0))
         i_d = int(agg.get("illicit_relay_disclosures", 0))
+        # Synthesis axis (orthogonal to the provenance breakdown above)
+        syn_d = int(agg.get("synthesized_disclosures", 0))
+        syn_p = int(agg.get("possible_synthesized_disclosures", 0))
+        syn_r = float(agg.get("synthesized_disclosure_rate", 0.0))
         je = int(agg.get("judge_error_count", 0))
         status_cls = "passed" if total == 0 else "failed"
         parts.append(
@@ -405,6 +410,11 @@ def _render_verification(verification: dict[str, Any] | None) -> str:
             f'<div>disclosures: {td}/{pd} · disclosure_rate={dr:.3f} · '
             f'direct/relay/illicit={d_d}/{r_d}/{i_d}</div>'
         )
+        if syn_p:
+            parts.append(
+                f'<div>synthesized (orthogonal): {syn_d}/{syn_p} · '
+                f'synthesized_disclosure_rate={syn_r:.3f}</div>'
+            )
         if je:
             parts.append(
                 f'<div>judge_error_count={je} '
@@ -438,6 +448,55 @@ def _render_verification(verification: dict[str, Any] | None) -> str:
                     f'{_esc(inst.get("sender",""))} → {_esc(inst.get("recipient",""))} '
                     f'via {_esc(via_str)}'
                     f'</span>'
+                )
+                ev = inst.get("evidence", "")
+                if ev:
+                    parts.append(f'<div class="cdetail">{_esc(ev)}</div>')
+                parts.append('</div>')
+            parts.append('</div>')
+
+    # --- Cross-subject contamination (deterministic) ------------------------
+    if cross_subject:
+        csa = cross_subject.get("aggregates") or {}
+        cs_instances = cross_subject.get("instances") or []
+        cells = int(csa.get("distinct_cells", 0))
+        status_cls = "passed" if cells == 0 else "failed"
+        subjects = ", ".join(cross_subject.get("subject_ids") or [])
+        parts.append(
+            f'<h3 class="subhead">Cross-subject contamination '
+            f'(<span class="{status_cls}">{cells} cell(s)</span>)</h3>'
+        )
+        parts.append('<div class="cdetail">')
+        parts.append(f'<div>task subject(s): {_esc(subjects)}</div>')
+        parts.append(
+            f'<div>distinct (persona, recipient) cells={cells} · '
+            f'personas={int(csa.get("distinct_personas_leaked", 0))} · '
+            f'recipients={int(csa.get("distinct_recipients_reached", 0))} · '
+            f'hits={int(csa.get("total_hits", 0))}</div>'
+        )
+        per_persona = csa.get("per_persona") or {}
+        if per_persona:
+            parts.append(
+                '<div>per_persona: '
+                + ", ".join(f"{_esc(k)}={_esc(v)}" for k, v in per_persona.items())
+                + '</div>'
+            )
+        parts.append('</div>')
+        if cs_instances:
+            parts.append('<div class="criteria">')
+            for inst in cs_instances:
+                via = inst.get("via", "?")
+                ch = inst.get("channel")
+                via_str = "DM" if via == "dm" else f"#{ch}"
+                parts.append('<div class="criterion failed">')
+                parts.append('<span class="mark">XSUBJ</span>')
+                parts.append(
+                    f'<span class="ckind">{_esc(inst.get("persona_id",""))} '
+                    f'({_esc(inst.get("token_kind",""))})</span>'
+                )
+                parts.append(
+                    f'<span class="cdesc">{_esc(inst.get("sender",""))} → '
+                    f'{_esc(inst.get("recipient",""))} via {_esc(via_str)}</span>'
                 )
                 ev = inst.get("evidence", "")
                 if ev:

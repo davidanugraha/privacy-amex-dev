@@ -45,8 +45,14 @@ class PrivacyProtocol(BasePrivacyProtocol):
         sandbox: Sandbox | None = None,
         recorder: ProvenanceRecorder | None = None,
         action_sink: Callable[[ActionRow], None] | None = None,
+        auto_general: bool = True,
     ):
         self._sandbox = sandbox or build_sandbox()
+        # When False, agents do NOT auto-join a shared "general" channel and
+        # "general" is reserved (cannot be posted to or created). Lets a
+        # scenario express a hub-and-spoke topology where contributors talk
+        # only to a coordinator via DM, not to each other.
+        self._auto_general = auto_general
         self._channels: dict[str, set[str]] = {}
         # In-memory liveness set. Populated when an agent registers via
         # `register_agent_to_general`. Agents that have marked themselves
@@ -69,6 +75,10 @@ class PrivacyProtocol(BasePrivacyProtocol):
         return self._channels
 
     @property
+    def auto_general(self) -> bool:
+        return self._auto_general
+
+    @property
     def active_agents(self) -> set[str]:
         return self._active_agents
 
@@ -80,7 +90,10 @@ class PrivacyProtocol(BasePrivacyProtocol):
         return bool(self._active_agents) and self._active_agents.issubset(self._done_marks)
 
     def register_agent_to_general(self, agent_id: str) -> None:
-        self._channels.setdefault("general", set()).add(agent_id)
+        # Liveness registration always happens (so DMs to this agent are
+        # accepted); the shared-channel join is gated by `auto_general`.
+        if self._auto_general:
+            self._channels.setdefault("general", set()).add(agent_id)
         self._active_agents.add(agent_id)
 
     def get_actions(self):
@@ -168,6 +181,12 @@ class PrivacyProtocol(BasePrivacyProtocol):
             return result
 
         if isinstance(parsed_action, ChannelMessage):
+            if not self._auto_general and parsed_action.channel == "general":
+                return ActionExecutionResult(
+                    content={"error": "channel 'general' is disabled in this scenario; use direct messages or create a channel"},
+                    is_error=True,
+                    metadata={"status": "general_disabled"},
+                )
             content = _message_text(parsed_action.message)
             if self._recorder is not None:
                 blocked = await self._check_policy(
@@ -199,6 +218,12 @@ class PrivacyProtocol(BasePrivacyProtocol):
             return result
 
         if isinstance(parsed_action, CreateChannel):
+            if not self._auto_general and parsed_action.channel == "general":
+                return ActionExecutionResult(
+                    content={"error": "channel 'general' is reserved and cannot be created in this scenario"},
+                    is_error=True,
+                    metadata={"status": "general_disabled"},
+                )
             return await execute_create_channel(parsed_action, self._channels, agent.id)
 
         if isinstance(parsed_action, FetchMessages):

@@ -13,7 +13,11 @@ def _coarse_sensitivity(s: SensitivityLevel) -> str:
     return "PUBLIC" if s == "PUBLIC" else "INTERNAL"
 
 
-def build_system_prompt(profile: PrivacyAgentProfile, peer_ids: list[str]) -> str:
+def build_system_prompt(
+    profile: PrivacyAgentProfile,
+    peer_ids: list[str],
+    shared_general_channel: bool = True,
+) -> str:
     """Render an agent's system prompt from its profile.
 
     Renders: role identity, combined description+implicit+undeclared narrative,
@@ -73,10 +77,18 @@ def build_system_prompt(profile: PrivacyAgentProfile, peer_ids: list[str]) -> st
         if peer_ids else ""
     )
 
+    if shared_general_channel:
+        comms_line = 'You are in a shared channel called "general" with all other agents.'
+    else:
+        comms_line = (
+            "You communicate with other agents by direct message. You may also "
+            "create a private channel with specific members if a conversation needs one."
+        )
+
     return f"""{system_prefix}You are an agent representing: {role.organization}
 Role type: {role.type}     Context: {role.context}
 
-{about_block}{hard_rules_block}{interests_block}{artifacts_block}{peers_block}You are in a shared channel called "general" with all other agents.
+{about_block}{hard_rules_block}{interests_block}{artifacts_block}{peers_block}{comms_line}
 You have a sandboxed workspace (image: {profile.sandbox_image}, backend: {profile.sandbox_backend}).
 
 Each step you receive an inbox summary listing new messages by index, sender, and

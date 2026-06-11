@@ -1,5 +1,6 @@
 """Scenario data model and YAML loader."""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -31,6 +32,10 @@ class Scenario:
     kickoff_from: str = "system"
     kickoff_channel: str = "general"
     kickoff_to: str | None = None
+    # When False, there is no shared "general" channel: agents don't auto-join
+    # it, and it cannot be posted to or created. Enables hub-and-spoke
+    # topologies (contributors talk only to a coordinator via DM).
+    shared_general_channel: bool = True
     max_steps: int = 20
     max_tool_rounds: int = 10
     max_wall_seconds: int | None = None
@@ -56,9 +61,26 @@ class Scenario:
     # ground truth the judge reads against.
     goal: str | None = None
     sensitive_claims: list[SensitiveClaim] = field(default_factory=list)
-    # Optional model override for LLM-judged eval. When None, the LLM
-    # client uses its environment-configured default.
+    # Deterministic cross-subject leak detection (orthogonal to the LLM judge).
+    # `task_subjects` names the persona id(s) the task is legitimately about;
+    # `cross_subject_identifiers` is the loaded {persona_id: {names/emails/...}}
+    # registry. When both are present, `evaluate_cross_subject` flags any
+    # NON-subject persona's identifier appearing in an outbound message. The
+    # registry defaults to `../../personas/identifiers.yaml` relative to the
+    # scenario (override with `cross_subject_registry:` in YAML).
+    task_subjects: list[str] = field(default_factory=list)
+    cross_subject_identifiers: dict[str, Any] = field(default_factory=dict)
+    # Optional model override for LLM-judged eval. Resolution precedence
+    # (loader): scenario YAML `eval_model` > `EVAL_MODEL` env > None. When
+    # None, the judge inherits the sim's env-configured model (LLM_MODEL).
     eval_model: str | None = None
+    # Optional provider override for LLM-judged eval (e.g. run the judge on
+    # a different provider than the sim agents). Same precedence: scenario
+    # YAML `eval_provider` > `EVAL_PROVIDER` env > None. When None, the judge
+    # inherits the sim's env-configured provider (LLM_PROVIDER). `eval_model`
+    # alone only switches model within that provider; set this to cross
+    # providers (e.g. sim=anthropic, judge=openai).
+    eval_provider: str | None = None
     # Which judge implementation to use for leak eval. See
     # `src/experiments/violations.py::evaluate_violations`.
     #   - "llm":   single-shot LLM judge over the full per-recipient transcript (default)
@@ -136,6 +158,24 @@ def _apply_guide(
 """
 
 
+def _load_cross_subject_registry(
+    raw: dict[str, Any], scenario_dir: Path
+) -> dict[str, Any]:
+    """Load the persona identifier registry for cross-subject leak detection.
+
+    Path comes from `cross_subject_registry:` in the YAML, defaulting to the
+    library convention `../../personas/identifiers.yaml` relative to the
+    scenario dir. Returns the `personas:` mapping, or {} if the file is absent.
+    """
+    rel = raw.get("cross_subject_registry", "../../personas/identifiers.yaml")
+    path = scenario_dir / rel
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("personas", {}) or {}
+
+
 def _resolve_judge_mode(raw: dict[str, Any]) -> JudgeMode:
     """Pick the judge mode from YAML, honoring the legacy bool key for back-compat.
 
@@ -186,6 +226,11 @@ def load_scenario(path: str | Path, use_guide: bool = False) -> Scenario:
         SensitiveClaim.model_validate(c) for c in raw.get("sensitive_claims", [])
     ]
 
+    task_subjects = list(raw.get("task_subjects", []) or [])
+    cross_subject_identifiers = (
+        _load_cross_subject_registry(raw, scenario_dir) if task_subjects else {}
+    )
+
     return Scenario(
         name=raw["name"],
         description=raw.get("description", ""),
@@ -194,6 +239,7 @@ def load_scenario(path: str | Path, use_guide: bool = False) -> Scenario:
         kickoff_from=raw.get("kickoff_from", "system"),
         kickoff_channel=raw.get("kickoff_channel", "general"),
         kickoff_to=raw.get("kickoff_to"),
+        shared_general_channel=raw.get("shared_general_channel", True),
         max_steps=raw.get("max_steps", 20),
         max_tool_rounds=raw.get("max_tool_rounds", 10),
         max_wall_seconds=raw.get("max_wall_seconds"),
@@ -206,7 +252,10 @@ def load_scenario(path: str | Path, use_guide: bool = False) -> Scenario:
         scenario_dir=scenario_dir,
         goal=raw.get("goal"),
         sensitive_claims=sensitive_claims,
-        eval_model=raw.get("eval_model"),
+        task_subjects=task_subjects,
+        cross_subject_identifiers=cross_subject_identifiers,
+        eval_model=raw.get("eval_model") or os.getenv("EVAL_MODEL"),
+        eval_provider=raw.get("eval_provider") or os.getenv("EVAL_PROVIDER"),
         judge_mode=_resolve_judge_mode(raw),
         judge_max_rounds=raw.get("judge_max_rounds", 8),
         judge_max_pairs=raw.get("judge_max_pairs"),

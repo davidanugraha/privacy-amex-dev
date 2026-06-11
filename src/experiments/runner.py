@@ -34,7 +34,7 @@ from src.provenance import Policy, ProvenanceRecorder
 from src.provenance.integrations.privacy_protocol import RecordingSandbox
 
 from .completion import evaluate_completion
-from .violations import evaluate_violations
+from .violations import evaluate_cross_subject, evaluate_violations
 from .report import generate_report
 from .scenario import Scenario, ScenarioAgent, load_scenario
 
@@ -240,6 +240,7 @@ async def run_scenario(
         sandbox=sandbox,
         recorder=recorder,
         action_sink=live_writer.write_action,
+        auto_general=scenario.shared_general_channel,
     )
 
     print(f"\n{'='*60}")
@@ -339,15 +340,29 @@ async def _run_verification(
             channels,
             all_agent_ids,
             model=scenario.eval_model,
+            provider=scenario.eval_provider,
             judge_mode=scenario.judge_mode,
             max_rounds=scenario.judge_max_rounds,
             max_pairs=scenario.judge_max_pairs,
             logger=eval_logger,
         )
 
+    # Deterministic cross-subject leak pass (no LLM). Flags any non-task-subject
+    # persona's identifier in an outbound message; orthogonal to the claim judge.
+    cross_subject = None
+    if scenario.task_subjects and scenario.cross_subject_identifiers:
+        cross_subject = evaluate_cross_subject(
+            actions,
+            channels,
+            all_agent_ids,
+            scenario.task_subjects,
+            scenario.cross_subject_identifiers,
+            logger=eval_logger,
+        )
+
     await eval_logger.flush()
 
-    if completion is None and violations is None:
+    if completion is None and violations is None and cross_subject is None:
         return
 
     print(f"\n{'='*60}")
@@ -385,6 +400,19 @@ async def _run_verification(
         if len(violations.instances) > 20:
             print(f"    … {len(violations.instances) - 20} more")
 
+    if cross_subject is not None:
+        csa = cross_subject.aggregates
+        print("\nCross-subject contamination (deterministic):")
+        print(f"  subjects:     {cross_subject.subject_ids}")
+        print(f"  cells:        {csa.distinct_cells} distinct (persona, recipient)"
+              f"   personas={csa.distinct_personas_leaked} recipients={csa.distinct_recipients_reached}"
+              f"   hits={csa.total_hits}")
+        for inst in cross_subject.instances[:20]:
+            print(f"    persona={inst.persona_id} ({inst.token_kind}) "
+                  f"{inst.sender} -> {inst.recipient}: {inst.evidence[:80]}")
+        if len(cross_subject.instances) > 20:
+            print(f"    … {len(cross_subject.instances) - 20} more")
+
     verification: dict[str, Any] = {}
 
     # Headline summary at the top — the three granularity-invariant leak
@@ -411,6 +439,14 @@ async def _run_verification(
             "pairs_leaked": f"{agg.total_pair_disclosures} / {agg.possible_pair_disclosures}",
             "judge_error_count": agg.judge_error_count,
         }
+    if cross_subject is not None:
+        csa = cross_subject.aggregates
+        summary["cross_subject"] = {
+            "distinct_cells": csa.distinct_cells,
+            "distinct_personas_leaked": csa.distinct_personas_leaked,
+            "distinct_recipients_reached": csa.distinct_recipients_reached,
+            "total_hits": csa.total_hits,
+        }
 
     # Token usage rollup — read from db.logs so it includes both agent-turn
     # calls (phase: scenario, identified by metadata.agent_id) and eval calls
@@ -425,6 +461,8 @@ async def _run_verification(
         verification["completion"] = completion.to_dict()
     if violations is not None:
         verification["violations"] = violations.to_dict()
+    if cross_subject is not None:
+        verification["cross_subject"] = cross_subject.to_dict()
     verification["usage"] = usage
     (output_path / "verification.json").write_text(json.dumps(verification, indent=2))
 
@@ -664,7 +702,7 @@ async def run_k_times(scenario: Scenario, k: int, *, seed: int = 0) -> Path:
     run gets a distinct label in `outputs/<scenario>/<timestamp>_seedN/`.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    parent = Path("outputs") / scenario.name / f"{timestamp}_k{k}"
+    parent = Path("outputs")
     parent.mkdir(parents=True, exist_ok=True)
 
     run_dirs: list[Path] = []
@@ -960,6 +998,12 @@ def main() -> None:
         help="Run seed label, encoded into the output folder (default: 0). "
              "Currently a label only; not wired into LLM sampling.",
     )
+    parser.add_argument(
+        "--shared-general-channel", action=argparse.BooleanOptionalAction, default=None,
+        help="Override scenario.shared_general_channel. "
+             "--no-shared-general-channel disables the shared 'general' channel "
+             "(hub-and-spoke: agents talk only by DM).",
+    )
     args = parser.parse_args()
 
     scenario = load_scenario(args.scenario_path, use_guide=args.use_guide)
@@ -969,6 +1013,8 @@ def main() -> None:
         scenario.judge_max_rounds = args.judge_max_rounds
     if args.judge_max_pairs is not None:
         scenario.judge_max_pairs = args.judge_max_pairs
+    if args.shared_general_channel is not None:
+        scenario.shared_general_channel = args.shared_general_channel
 
     if args.repeat <= 1:
         asyncio.run(run_scenario(scenario, seed=args.seed))
